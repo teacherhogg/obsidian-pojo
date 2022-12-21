@@ -24,7 +24,6 @@ export interface CompletrSettings {
     frontMatterTagAppendSuffix: boolean,
     frontMatterIgnoreCase: boolean,
     calloutProviderEnabled: boolean,
-    pojoProviderEnabled: boolean,
 }
 
 export const DEFAULT_SETTINGS: CompletrSettings = {
@@ -45,7 +44,6 @@ export const DEFAULT_SETTINGS: CompletrSettings = {
     frontMatterTagAppendSuffix: true,
     frontMatterIgnoreCase: true,
     calloutProviderEnabled: true,
-    pojoProviderEnabled: true,
 }
 
 export function intoCompletrPath(vault: Vault, ...path: string[]): string {

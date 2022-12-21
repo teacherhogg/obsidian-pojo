@@ -1,19 +1,17 @@
-import { EditorPosition, editorViewField, KeymapContext, MarkdownView, Plugin, TFile, } from "obsidian";
+import {EditorPosition, editorViewField, KeymapContext, MarkdownView, Plugin, TFile,} from "obsidian";
 import SnippetManager from "./snippet_manager";
-import SuggestionPopup, { SelectionDirection } from "./popup";
-import { CompletrSettings, DEFAULT_SETTINGS } from "./settings";
-import { WordList } from "./provider/word_list_provider";
-import { FileScanner } from "./provider/scanner_provider";
+import SuggestionPopup, {SelectionDirection} from "./popup";
+import {CompletrSettings, DEFAULT_SETTINGS} from "./settings";
+import {WordList} from "./provider/word_list_provider";
+import {FileScanner} from "./provider/scanner_provider";
 import CompletrSettingsTab from "./settings_tab";
-import { EditorView, ViewUpdate } from "@codemirror/view";
-import { editorToCodeMirrorState, posFromIndex } from "./editor_helpers";
-import { markerStateField } from "./marker_state_field";
-import { FrontMatter } from "./provider/front_matter_provider";
-import { Latex } from "./provider/latex_provider";
-import { Callout } from "./provider/callout_provider";
-import { Pojo } from "./provider/pojo_provider";
-import { SuggestionBlacklist } from "./provider/blacklist";
-import { PojoZap } from "./pojo_dialog";
+import {EditorView, ViewUpdate} from "@codemirror/view";
+import {editorToCodeMirrorState, posFromIndex} from "./editor_helpers";
+import {markerStateField} from "./marker_state_field";
+import {FrontMatter} from "./provider/front_matter_provider";
+import {Latex} from "./provider/latex_provider";
+import {Callout} from "./provider/callout_provider";
+import {SuggestionBlacklist} from "./provider/blacklist";
 
 export default class CompletrPlugin extends Plugin {
 
@@ -22,7 +20,7 @@ export default class CompletrPlugin extends Plugin {
     private snippetManager: SnippetManager;
     private _suggestionPopup: SuggestionPopup;
 
-    async onload () {
+    async onload() {
         await this.loadSettings();
 
         this.snippetManager = new SnippetManager();
@@ -46,7 +44,7 @@ export default class CompletrPlugin extends Plugin {
         }
     }
 
-    private setupCommands () {
+    private setupCommands() {
         //This replaces the default handler for commands. This is needed because the default handler always consumes
         // the event if the command exists.
         const app = this.app as any;
@@ -88,7 +86,7 @@ export default class CompletrPlugin extends Plugin {
 
                         const validMods = t.modifiers.replace(new RegExp(`${hotkey.modifiers},*`), "").split(",");
                         //Sends the event again, only keeping the modifiers which didn't activate this command
-                        const event = new KeyboardEvent("keydown", {
+                        let event = new KeyboardEvent("keydown", {
                             key: hotkeyManager.defaultKeys[id][0].key,
                             ctrlKey: validMods.contains("Ctrl"),
                             shiftKey: validMods.contains("Shift"),
@@ -104,12 +102,6 @@ export default class CompletrPlugin extends Plugin {
                 }
             }
         });
-
-        // POJO Action Dialog
-        this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
-            console.log("TBD to implement POJO conversion");
-            new PojoZap(this.app).open();
-        })
 
         this.addCommand({
             id: 'completr-open-suggestion-popup',
@@ -270,28 +262,27 @@ export default class CompletrPlugin extends Plugin {
         });
     }
 
-    async onunload () {
+    async onunload() {
         this.snippetManager.onunload();
         await FileScanner.saveData(this.app.vault);
     }
 
-    async loadSettings () {
+    async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
         SuggestionBlacklist.loadData(this.app.vault).then(() => {
             WordList.loadFromFiles(this.app.vault, this.settings);
             FileScanner.loadData(this.app.vault);
             Latex.loadCommands(this.app.vault);
-            Pojo.loadSuggestions(this.app.vault);
             Callout.loadSuggestions(this.app.vault);
         });
     }
 
-    get suggestionPopup () {
+    get suggestionPopup() {
         return this._suggestionPopup;
     }
 
-    async saveSettings () {
+    async saveSettings() {
         await this.saveData(this.settings);
     }
 

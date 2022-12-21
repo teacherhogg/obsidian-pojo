@@ -5,7 +5,6 @@ import {WordList} from "./provider/word_list_provider";
 import {CompletrSettings, WordInsertionMode} from "./settings";
 import {TextDecoder} from "util";
 import {detect} from "jschardet";
-import { Pojo } from "./provider/pojo_provider";
 
 export default class CompletrSettingsTab extends PluginSettingTab {
 
@@ -309,43 +308,6 @@ export default class CompletrSettingsTab extends PluginSettingTab {
             .setHeading();
 
         this.createEnabledSetting("calloutProviderEnabled", "Whether or not the callout provider is enabled", containerEl);
-
-
-        new Setting(containerEl)
-            .setName("Power Obsidian Journaling (POJO) provider")
-            .setHeading()
-            .addExtraButton(button => button
-                .setIcon("search")
-                .setTooltip("Immediately scan all .md files currently in your vault to update POJO history.")
-                .onClick(() => {
-                    new ConfirmationModal(this.plugin.app,
-                        "Start scanning?",
-                        "Depending on the size of your vault and computer, this may take a while.",
-                        button => button
-                            .setButtonText("Scan")
-                            .setCta(),
-                        async () => {
-                            await Pojo.scanFiles(this.plugin.settings, this.plugin.app.vault.getMarkdownFiles());
-                        },
-                    ).open();
-                }))
-            .addExtraButton(button => button
-                .setIcon("trash")
-                .setTooltip("Delete all known words.")
-                .onClick(async () => {
-                    new ConfirmationModal(this.plugin.app,
-                        "Delete POJO history?",
-                        "This will delete the existing history of found POJO tags and POJO headings.",
-                        button => button
-                            .setButtonText("Delete")
-                            .setWarning(),
-                        async () => {
-                            await Pojo.deleteHistory(this.plugin.app.vault);
-                        },
-                    ).open();
-                }));
-
-        this.createEnabledSetting("pojoProviderEnabled", "Whether or not the Power Obsidian Journaling provider is enabled", containerEl);
     }
 
     private async reloadWords() {
