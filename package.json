@@ -1,25 +1,26 @@
 {
     "name": "obsidian-pojo",
-    "version": "3.1.0",
-    "description": "This plugin provides advanced auto-completion capabilities for Obsidian including Power Obsidian Journaling.",
+    "version": "1.0",
+    "description": "Power Obsidian Journaling (POJO), a journaling plugin that creates structured and unstructured data and plays nicely with other plugins such as Daily Notes, Datacore, and more.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
         "build": "node esbuild.config.mjs production"
     },
     "keywords": [],
-    "author": "tth05",
+    "author": "dwhogg",
     "license": "MIT",
     "devDependencies": {
+        "@codemirror/state": "^6.1.2",
         "@types/node": "^16.11.6",
         "@typescript-eslint/eslint-plugin": "^5.30.7",
         "@typescript-eslint/parser": "^5.30.7",
         "builtin-modules": "^3.3.0",
         "esbuild": "^0.15.11",
+        "jschardet": "^3.0.0",
+        "obsidian": "^0.16.3",
         "tslib": "2.4.0",
         "typescript": "4.8.4",
-        "@codemirror/state": "^6.1.2",
-        "obsidian": "^0.16.3",
-        "jschardet": "^3.0.0"
+        "@textlint/markdown-to-ast": "^12.5.0"
     }
 }

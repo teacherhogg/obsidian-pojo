@@ -1,10 +1,10 @@
 {
     "id": "obsidian-pojo",
-    "name": "Completr with POJO support",
-    "version": "3.1.0",
+    "name": "Power Obsidian Journaling (POJO)",
+    "version": "1.0.0",
     "minAppVersion": "1.0.0",
-    "description": "This plugin provides advanced auto-completion including for Power Obsidian Journaling (POJO).",
-    "author": "tth05",
-    "authorUrl": "https://github.com/tth05",
-    "isDesktopOnly": true
+    "description": "Power Obsidian Journaling (POJO), a journaling plugin that creates structured and unstructured data and plays nicely with other plugins such as Daily Notes, Datacore, and more.",
+    "author": "teacherhogg",
+    "authorUrl": "https://github.com/teacherhogg",
+    "isDesktopOnly": false
 }

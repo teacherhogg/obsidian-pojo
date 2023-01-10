@@ -5,7 +5,7 @@ import {
 } from "./provider";
 import { CompletrSettings, intoCompletrPath } from "../settings";
 import { Notice, parseLinktext, TFile, Vault, Platform } from "obsidian";
-import { PojoConvert, loadFromFile } from "../pojo_convert";
+import { PojoHelper, loadFromFile } from "../pojo_helper";
 import { PojoZap } from "../pojo_dialog";
 import { SuggestionBlacklist } from "./blacklist";
 import { platform } from "os";
@@ -86,7 +86,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
             }
         }
 
-        this.pojo = new PojoConvert(this, this.loadedPojoSettings);
+        this.pojo = new PojoHelper(this, this.loadedPojoSettings);
 
         await this.pojo.InitHistory(vault);
     }

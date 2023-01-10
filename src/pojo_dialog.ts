@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "crypto";
 import { App, Modal } from "obsidian";
 
 export class PojoZap extends Modal {
