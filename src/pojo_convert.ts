@@ -1,19 +1,21 @@
-import { triggerAsyncId } from "async_hooks";
-import { App } from "obsidian";
+import { intoCompletrPath } from "./settings";
+import { Suggestion } from "./provider/provider";
+import { Vault } from "obsidian";
 
-const defcatch = "Daily Entry";
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
 const POJO_H3_PREFIX_REGEX = /^### /;
 
+const POJO_HISTORY_FILE = "pojo_history.json";
 
 export class PojoConvert {
 
     private settings: object;
-    private app: App;
+    private pojoProvider: object;
     private loadedPojoDB: Record<string, never>;
+    private loadedPojoHistory: object;
 
-    constructor(app: App, pojosettings: object) {
-        this.app = app;
+    constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
+        this.pojoProvider = pojoProvider;
         this.settings = pojosettings;
 
         const dbinfo = {};
@@ -24,6 +26,23 @@ export class PojoConvert {
         }
         this.loadedPojoDB = dbinfo;
         this.pojoDatabases = dbkeys;
+
+    }
+
+    async InitHistory (vault: Vault) {
+        let loadedPojoHistory: object;
+        const path = intoCompletrPath(vault, POJO_HISTORY_FILE);
+        if (!(await vault.adapter.exists(path))) {
+            loadedPojoHistory = {};
+        } else {
+            try {
+                loadedPojoHistory = await loadFromFile(vault, path);
+            } catch (e) {
+                console.error("ERROR loading Pojo History", e);
+                return;
+            }
+        }
+        this.loadedPojoHistory = loadedPojoHistory;
     }
 
     getDatabases (): string[] {
@@ -54,14 +73,13 @@ export class PojoConvert {
         return line.slice(start).trimStart();
     }
 
-
-    parseTagLine (tagline: string): object {
+    parseTagLineDEPRECATED (tagline: string): object {
 
         // Tags do not have spaces in the reference except for Daily Entry
-        if (tagline == defcatch) {
+        if (tagline == "Daily Entry") {
             return {
-                canonical: defcatch,
-                database: defcatch
+                canonical: "Daily Entry",
+                database: "Daily Entry"
             }
         }
 
@@ -80,96 +98,416 @@ export class PojoConvert {
         }
         robj[dbinfo.type] = rtag.type;
 
-        // Check if the type is limited to a set of allowed values
-        if (dbinfo["type-values"]) {
-            const allowed = dbinfo["type-values"].find(el => el.toLowerCase() == rtag.type.toLowerCase());
-            if (!allowed) {
-                const emsg = "INVALID type value for database " + rtag.database + " ref " + rtag.nref;
-                this.logError(emsg, rtag.type);
-                console.error(emsg, rtag.type);
-                exitNow();
-            } else {
-                robj[dbinfo.type] = allowed;
-            }
-        }
+        const finfo = dbinfo["field-info"];
 
-        if (taga.length > 1) {
-            taga.shift();
-            const params = taga.join(" ");
-            const aparams = params.split(";")
-
-            if (aparams) {
-                let n = 0;
-                if (aparams.length > dbinfo.params.length) {
-                    this.logError("ERROR in tag params. More than expected for tag ", aparams, dbinfo.params);
-                    return null;
+        if (finfo) {
+            // Check if the type is limited to a set of allowed values
+            const tinfo = finfo[dbinfo.type];
+            if (tinfo && tinfo.allowed && tinfo.allowed == "fixed" && tinfo.values) {
+                const vals = tinfo.values["_ALL"];
+                const allowed = vals.find(el => el.toLowerCase() == rtag.type.toLowerCase());
+                if (!allowed) {
+                    const emsg = "INVALID type value for database " + rtag.database + " ref " + rtag.nref;
+                    this.logError(emsg, rtag.type);
+                    console.error(emsg, rtag.type);
                 } else {
-                    for (let p of aparams) {
-                        if (p) {
-                            p = p.trim();
-                            const allowedv = `param${n + 1}-values`;
-                            if (dbinfo[allowedv] && (dbinfo[allowedv]["_ALL"] || dbinfo[allowedv][robj[dbinfo.type]])) {
-                                const alla = dbinfo[allowedv]["_ALL"] ? dbinfo[allowedv]["_ALL"] : dbinfo[allowedv][robj[dbinfo.type]];
-                                const allowedp = alla.find(el => {
-                                    if (el.toLowerCase() == p.toLowerCase()) {
-                                        return true;
-                                    }
-                                    return false;
-                                });
-                                if (!allowedp) {
-                                    const emsg = "INVALID parameter value for database " + rtag.database + " ref " + rtag.nref + " pvalue : " + p;
-                                    this.logError(emsg, alla);
-                                    console.error(emsg, alla);
-                                    exitNow();
-                                } else {
-                                    p = allowedp;
-                                }
-                            }
-                            if (dbinfo.params[n] == "Description") {
-                                if (!robj.Description) { robj.Description = []; }
-                                robj.Description.push(p.trim());
-                            } else {
-                                // Deal with if multi-valued
-                                if (this.checkMultiValued(rtag.data, dbinfo.params[n])) {
-                                    const va = p.split(",");
-                                    for (let i = 0; i < va.length; i++) {
-                                        va[i] = normalizeValue(va[i]);
-                                    }
-                                    robj[dbinfo.params[n]] = va.join(",");
-                                } else {
-                                    robj[dbinfo.params[n]] = this.normalizeValue(p);
-                                }
-                            }
-                        }
-                        n++;
-                    }
+                    robj[dbinfo.type] = allowed;
                 }
             }
 
-            // Check to see if missing params for this database entry and indicate that
-            //        for (let pm of dbinfo.params) {
-            //            if (pm !== "Description") {
-            //               if (!robj[pm]) { robj[pm] = "_NONE_"; }
-            //            }
-            //        }
+            if (taga.length > 1) {
+                taga.shift();
+                const params = taga.join(" ");
+                const aparams = params.split(";")
 
+                if (aparams) {
+                    let n = 0;
+                    if (aparams.length > dbinfo.params.length) {
+                        this.logError("ERROR in tag params. More than expected for tag ", aparams, dbinfo.params);
+                        return null;
+                    } else {
+                        for (let p of aparams) {
+                            if (p) {
+                                p = p.trim();
+                                const pkey = dbinfo.params[n];
+                                if (pkey == "Description") {
+                                    if (!robj.Description) { robj.Description = []; }
+                                    robj.Description.push(p.trim());
+                                } else {
+                                    if (finfo[pkey]) {
+                                        // Check if this is limited to a fixed set of allowed values
+                                        if (finfo[pkey].allowed == "fixed" && finfo[pkey].values) {
+                                            if (finfo[pkey].values["_ALL"] || finfo[pkey].values[robj[dbinfo.type]]) {
+                                                const alla = finfo[pkey].values["_ALL"] ? finfo[pkey].values["_ALL"] : finfo[pkey].values[robj[dbinfo.type]];
+                                                const allowedp = alla.find(el => {
+                                                    if (el.toLowerCase() == p.toLowerCase()) {
+                                                        return true;
+                                                    }
+                                                    return false;
+                                                });
+                                                if (!allowedp) {
+                                                    const emsg = "INVALID parameter value for database " + rtag.database + " ref " + rtag.nref + " pvalue : " + p;
+                                                    this.logError(emsg, alla);
+                                                    console.error(emsg, alla);
+                                                } else {
+                                                    p = allowedp;
+                                                }
+                                            }
+                                        }
+                                        if (finfo[pkey].multi) {
+                                            const splitchar = finfo[pkey].multi;
+                                            const va = p.split(splitchar);
+                                            for (let i = 0; i < va.length; i++) {
+                                                va[i] = this.normalizeValue(va[i]);
+                                            }
+                                            //                                            robj[pkey] = va.join(splitchar);
+                                            robj[pkey] = va;
+                                        } else {
+                                            robj[pkey] = this.normalizeValue(p);
+                                        }
+                                    }
+                                }
+                            }
+                            n++;
+                        }
+                    }
+                }
+
+                // Check to see if missing params for this database entry and indicate that
+                //        for (let pm of dbinfo.params) {
+                //            if (pm !== "Description") {
+                //               if (!robj[pm]) { robj[pm] = "_NONE_"; }
+                //            }
+                //        }
+
+            }
         }
 
         return robj;
     }
 
-    private logError (name: string, dobj: object) {
-        //        logs.errors.push(name);
-        //        if (dobj) {
-        //            logs.errors.push(JSON.stringify(dobj, null, 3));
-        //        }
-        console.error(name, dobj);
+    addToHistory (line: string): boolean {
+        if (!line) {
+            return false;
+        }
+
+        line = this.stripLeading(line);
+        console.log("HISTORY -------------------------------------------");
+        console.log(`>>${line}<<`);
+        const tobj: object = this.parsePojoLine(line);
+        if (!tobj) { return false; }
+        console.log("parsePojoLinen TOBJ", tobj);
+
+        const dbname = tobj._database.toLowerCase();
+        const dbinfo = this.getDatabaseInfo(dbname);
+        if (!dbinfo) {
+            console.error("ERROR getting database info for " + dbname);
+            return false;
+        }
+
+        if (dbinfo["field-info"]) {
+            if (!this.loadedPojoHistory[dbname]) {
+                this.loadedPojoHistory[dbname] = {};
+            }
+
+            console.log("DA HISTORY", this.loadedPojoHistory);
+            const finfo = dbinfo["field-info"];
+            const self = this;
+            for (const key in finfo) {
+                if (finfo[key].allowed) {
+                    console.log("HISTORY DO", tobj, finfo);
+                    let bHistory = false;
+                    let hkey;
+                    if (finfo[key].allowed == "history") {
+                        hkey = key;
+                        bHistory = true;
+                    } else if (finfo[key].allowed == "history-type") {
+                        if (key == tobj._type) {
+                            hkey = key;
+                        } else {
+                            hkey = tobj._type + "-" + key;
+                        }
+                        bHistory = true;
+                    }
+
+                    if (bHistory) {
+                        hkey = hkey.toLowerCase();
+                        if (!this.loadedPojoHistory[dbname]) {
+                            this.loadedPojoHistory[dbname] = {};
+                        }
+                        if (!this.loadedPojoHistory[dbname][hkey]) {
+                            this.loadedPojoHistory[dbname][hkey] = [];
+                        }
+
+                        const _addItem = function (ival) {
+                            if (!ival) { return; }
+                            console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory[dbname]);
+                            if (!self.loadedPojoHistory[dbname][hkey].includes(ival)) {
+                                self.loadedPojoHistory[dbname][hkey].push(ival);
+                            }
+                        }
+
+                        if (Array.isArray(tobj[key])) {
+                            for (const val of tobj[key]) {
+                                _addItem(val);
+                            }
+                        } else {
+                            _addItem(tobj[key]);
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+
+    private getHistoryValues (dinfo: object, dkey: string): string[] {
+
+        const dbname = dinfo.database.toLowerCase();
+        dkey = dkey.toLowerCase();
+
+        if (this.loadedPojoHistory[dbname]) {
+            if (this.loadedPojoHistory[dbname][dkey]) {
+                //                console.log("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory[dbname][dkey]);
+                return this.loadedPojoHistory[dbname][dkey];
+            }
+        }
+
+        return [];
+    }
+
+    async deleteHistory (vault: Vault) {
+        this.loadedPojoHistory = {};
+        await this.saveHistory(vault);
+    }
+
+    async saveHistory (vault: Vault) {
+
+        console.log("POJO HISTORY!!", this.loadedPojoHistory);
+
+        await vault.adapter.write(intoCompletrPath(vault, POJO_HISTORY_FILE), JSON.stringify(this.loadedPojoHistory, null, 3));
+    }
+
+    parsePojoLine (tagline: string): object | null {
+
+        if (!tagline) return null;
+        let bTrailingSpace = false;
+        if (tagline.charAt(tagline.length - 1) == " ") {
+            bTrailingSpace = true;
+        }
+        tagline = tagline.trimEnd();
+
+        // Pojo Tags (or H3) do not have spaces in the reference except for Daily Entry
+        if (this.settings.daily_entry_h3.includes(tagline)) {
+            return {
+                _database: tagline
+            }
+        }
+
+        const params = tagline.split(" ");
+        const plen = params.length;
+        const taga = params[0].split("/");
+
+        const robj = {};
+
+        robj._database = taga[0];
+        robj._type = "";
+        if (taga.length > 1) {
+            robj._type = taga[1];
+        }
+
+        const dbinfo = this.getDatabaseInfo(robj._database);
+        if (!dbinfo) {
+            // ERROR
+            return null;
+        }
+        robj[dbinfo.type] = this.normalizeValue(taga[1]);
+
+        const finfo = dbinfo["field-info"];
+        if (finfo) {
+            // Check if the type is limited to a set of allowed values
+            const tinfo = finfo[dbinfo.type];
+            if (tinfo && tinfo.allowed && tinfo.allowed == "fixed" && tinfo.values) {
+                const vals = tinfo.values["_ALL"];
+                const allowed = vals.find(el => el.toLowerCase() == robj._type.toLowerCase());
+                if (!allowed) {
+                    const emsg = "INVALID type value for database " + robj._database;
+                    this.logError(emsg, robj.type);
+                } else {
+                    robj[dbinfo.type] = allowed;
+                }
+            }
+
+            if (plen > 1) {
+                params.shift();
+                const roline = params.join(" ");
+                const aparams = this.splitParams(roline);
+                //                console.log("aparams", aparams);
+
+                if (aparams) {
+                    if (aparams.length > dbinfo.params.length) {
+                        this.logError("ERROR in tag params. More than expected for tag ", aparams, dbinfo.params);
+                        return null;
+                    } else {
+                        let pnum = 0;
+                        for (let p of aparams) {
+                            const pkey = dbinfo.params[pnum];
+                            robj._loc = pkey;
+                            robj._locval = p;
+                            if (p) {
+                                p = p.trim();
+                                if (pkey == "Description") {
+                                    if (!robj.Description) { robj.Description = []; }
+                                    robj.Description.push(p.trim());
+                                    //                                    robj._loc = pkey;
+                                } else {
+                                    //                                    robj._loc = `param${pnum + 1}`;
+                                    if (finfo[pkey]) {
+                                        // Check if this is limited to a fixed set of allowed values
+                                        if (finfo[pkey].allowed == "fixed" && finfo[pkey].values) {
+                                            if (finfo[pkey].values["_ALL"] || finfo[pkey].values[robj[dbinfo.type]]) {
+                                                const alla = finfo[pkey].values["_ALL"] ? finfo[pkey].values["_ALL"] : finfo[pkey].values[robj[dbinfo.type]];
+                                                const allowedp = alla.find(el => {
+                                                    if (el.toLowerCase() == p.toLowerCase()) {
+                                                        return true;
+                                                    }
+                                                    return false;
+                                                });
+                                                if (!allowedp) {
+                                                    const emsg = "INVALID parameter value for database " + robj.database + " pvalue : " + p;
+                                                    this.logError(emsg, alla);
+                                                } else {
+                                                    p = allowedp;
+                                                }
+                                            }
+                                        }
+                                        if (finfo[pkey].multi) {
+                                            const splitchar = finfo[pkey].multi;
+                                            const va = p.split(splitchar);
+                                            for (let i = 0; i < va.length; i++) {
+                                                va[i] = this.normalizeValue(va[i]);
+                                            }
+                                            //                                            robj[pkey] = va.join(splitchar);
+                                            robj[pkey] = va;
+                                        } else {
+                                            robj[pkey] = this.normalizeValue(p);
+                                        }
+                                    }
+                                }
+                            }
+                            pnum++;
+                        }
+                    }
+                }
+
+                // Check to see if missing params for this database entry and indicate that
+                //        for (let pm of dbinfo.params) {
+                //            if (pm !== "Description") {
+                //               if (!robj[pm]) { robj[pm] = "_NONE_"; }
+                //            }
+                //        }
+
+            } else {
+                // Just the Pojo Tag without any metadata
+                if (taga.length == 1 && !params[0].endsWith("/")) {
+                    robj._loc = "database";
+                    robj._locval = taga[0];
+                } else if (!bTrailingSpace) {
+                    robj._loc = "type";
+                    robj._locval = taga[1];
+                } else {
+                    if (dbinfo.params && dbinfo.params.length > 0) {
+                        robj._loc = dbinfo.params[0];
+                        robj._locval = "";
+                    }
+                }
+            }
+        }
+
+        return robj;
+    }
+
+    getSuggestedValues (pobj: object): Suggestion[] | null {
+
+        if (!pobj || !pobj._loc) { return null; }
+
+        let values = [];
+        if (pobj._loc == "database") {
+            values = this.filterValues(pobj._database, this.getDatabases());
+        } else if (pobj._loc == "type") {
+            const dinfo = this.getDatabaseInfo(pobj._database);
+            if (!dinfo) {
+                return null;
+            }
+            const svalues = this.getValues(dinfo, dinfo.type);
+            values = this.filterValues(pobj._type, svalues);
+        } else {
+            const dinfo = this.getDatabaseInfo(pobj._database);
+            if (!dinfo) {
+                return null;
+            }
+
+            const svalues = this.getValues(dinfo, pobj._loc, pobj._type);
+            values = this.filterValues(pobj._locval, svalues);
+        }
+        return values;
+    }
+
+    private filterValues (input: string, values: string[]): Suggestion[] {
+        const sa: Suggestion[] = [];
+        let av: string[] = values;
+        if (input) {
+            const lcin = input.toLocaleLowerCase();
+            av = values.filter(value => value.toLowerCase().startsWith(lcin));
+        }
+
+        for (const v of av) {
+            sa.push(Suggestion.fromString(v, null, "pojo"));
+        }
+        return sa;
+    }
+
+    private getValues (dinfo: object, pname: string, type?: string): string[] | null {
+        //        console.log("getValues with " + pname + " type: " + type, dinfo);
+        if (!dinfo["field-info"] || !dinfo["field-info"][pname]) {
+            return [];
+        }
+
+        const finfo = dinfo["field-info"][pname];
+        //        console.log("field-info " + pname, finfo);
+        if (finfo.allowed == "fixed") {
+            if (!finfo.values || !finfo.values["_ALL"]) {
+                console.error("ERROR getting field info for " + pname, dinfo);
+                return [];
+            }
+            return finfo.values["_ALL"];
+        } else if (finfo.allowed == "history-type") {
+            if (!type) {
+                console.error("ERROR with finfo.allowed of " + finfo.allowed, finfo);
+                return [];
+            }
+            let values = [];
+            if (finfo.values && finfo.values[type]) {
+                values = finfo.values[type];
+            }
+            return [...new Set([...values, ...this.getHistoryValues(dinfo, pname + "-" + type)])];
+        } else if (finfo.allowed == "history") {
+            let values = [];
+            if (finfo.values && finfo.values["_ALL"]) {
+                values = finfo.values["_ALL"];
+            }
+            return [...new Set([...values, ...this.getHistoryValues(dinfo, pname)])];
+        } else {
+            console.error("ERROR - unknown allowed property: " + finfo.allowed, finfo);
+            return [];
+        }
     }
 
     private normalizeValue (val) {
         if (!val) {
             return "";
         }
+
         // normalize value if up to three words long to a canonical form.
         const value = val.trim();
         if (value.split(" ").length > 3) {
@@ -209,27 +547,36 @@ export class PojoConvert {
         return nval;
     }
 
-    private normalizeReference (ref) {
-        // Tags and Header3 sections are case insensitive but normalized to a canonical form.
-        const a = ref.split("/");
-        if (a.length == 1) {
-            // NOT actually a database name, just the normalized value
-            return this.normalizeValue(ref);
+    private splitParams (pline: string): string[] {
+
+        if (this.settings.split_param) {
+            return pline.split(this.settings.split_param);
         } else {
-            const norm = [];
-            for (const w of a) {
-                norm.push(this.normalizeValue(w));
-            }
-            const nref = norm.join("/");
-            const database = norm[0];
-            const type = norm[1];
-            return { database, type, nref };
+            pline.split(";")
         }
     }
 
-    private checkMultiValued (key) {
-        if (this.settings.params_not_multi) {
-            if (this.settings.params_not_multi.includes(key)) { return false; }
-        }
+    private logError (name: string, dobj: object) {
+        //        logs.errors.push(name);
+        //        if (dobj) {
+        //            logs.errors.push(JSON.stringify(dobj, null, 3));
+        //        }
+        console.error(name, dobj);
     }
+}
+
+export async function loadFromFile (vault: Vault, file: string) {
+    const rawData = await vault.adapter.read(file);
+    let data: unknown;
+
+    // Parse the suggestions.
+    try {
+        data = JSON.parse(rawData);
+    } catch (e) {
+        console.log("Completr pojo parse error:", e.message);
+        throw new Error(`Failed to parse file ${file}.`);
+    }
+
+    // Return suggestions.
+    return data;
 }

@@ -13,7 +13,6 @@ import { Latex } from "./provider/latex_provider";
 import { Callout } from "./provider/callout_provider";
 import { Pojo } from "./provider/pojo_provider";
 import { SuggestionBlacklist } from "./provider/blacklist";
-import { PojoZap } from "./pojo_dialog";
 
 export default class CompletrPlugin extends Plugin {
 
@@ -107,8 +106,7 @@ export default class CompletrPlugin extends Plugin {
 
         // POJO Action Dialog
         this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
-            console.log("TBD to implement POJO conversion");
-            new PojoZap(this.app).open();
+            Pojo.pojoZap(this.app);
         })
 
         this.addCommand({
@@ -267,6 +265,21 @@ export default class CompletrPlugin extends Plugin {
                 const placeholder = this.snippetManager.placeholderAtPos(view.editor.getCursor());
                 return placeholder != null;
             },
+        });
+        this.addCommand({
+            id: 'completr-pojo-hint',
+            name: 'Show some helpful information for POJO.',
+            hotkeys: [
+                {
+                    key: "H",
+                    modifiers: ["Shift"]
+                }
+            ],
+            editorCallback: (editor) => {
+                Pojo.pojoZap(this.app, true);
+            },
+            // @ts-ignore
+            isVisible: () => Pojo.isHint(),
         });
     }
 

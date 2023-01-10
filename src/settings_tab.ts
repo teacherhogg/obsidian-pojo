@@ -1,10 +1,10 @@
-import {App, ButtonComponent, Modal, Notice, PluginSettingTab, Setting} from "obsidian";
+import { App, ButtonComponent, Modal, Notice, PluginSettingTab, Setting } from "obsidian";
 import CompletrPlugin from "./main";
-import {FileScanner} from "./provider/scanner_provider";
-import {WordList} from "./provider/word_list_provider";
-import {CompletrSettings, WordInsertionMode} from "./settings";
-import {TextDecoder} from "util";
-import {detect} from "jschardet";
+import { FileScanner } from "./provider/scanner_provider";
+import { WordList } from "./provider/word_list_provider";
+import { CompletrSettings, WordInsertionMode } from "./settings";
+import { TextDecoder } from "util";
+import { detect } from "jschardet";
 import { Pojo } from "./provider/pojo_provider";
 
 export default class CompletrSettingsTab extends PluginSettingTab {
@@ -17,8 +17,8 @@ export default class CompletrSettingsTab extends PluginSettingTab {
         this.plugin = plugin;
     }
 
-    display(): any {
-        const {containerEl} = this;
+    display (): any {
+        const { containerEl } = this;
 
         containerEl.empty();
 
@@ -331,7 +331,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                 }))
             .addExtraButton(button => button
                 .setIcon("trash")
-                .setTooltip("Delete all known words.")
+                .setTooltip("Delete existing POJO history.")
                 .onClick(async () => {
                     new ConfirmationModal(this.plugin.app,
                         "Delete POJO history?",
@@ -348,7 +348,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
         this.createEnabledSetting("pojoProviderEnabled", "Whether or not the Power Obsidian Journaling provider is enabled", containerEl);
     }
 
-    private async reloadWords() {
+    private async reloadWords () {
         if (this.isReloadingWords)
             return;
 
@@ -359,7 +359,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
         new Notice(`Loaded ${count} words`);
     }
 
-    private createEnabledSetting(propertyName: keyof CompletrSettings, desc: string, container: HTMLElement) {
+    private createEnabledSetting (propertyName: keyof CompletrSettings, desc: string, container: HTMLElement) {
         new Setting(container)
             .setName("Enabled")
             .setDesc(desc)
