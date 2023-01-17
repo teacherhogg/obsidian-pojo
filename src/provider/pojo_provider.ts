@@ -20,6 +20,8 @@ class PojoSuggestionProvider implements SuggestionProvider {
     private lasthint: string;
     private hint: string;
     private statusbar: object;
+    private lastlinep: object;
+    private vault: Vault;
 
     getSuggestions (context: SuggestionContext, settings: CompletrSettings): Suggestion[] {
         if (!settings.pojoProviderEnabled) {
@@ -30,8 +32,21 @@ class PojoSuggestionProvider implements SuggestionProvider {
         const { editor } = context;
         const lineNumber = context.start.line;
         let line = editor.getLine(lineNumber);
+        console.log("pojo line analysis >>" + line + "<<");
 
-        console.log("HERE IS DA pojo line", line);
+        if (this.lastlinep && !line) {
+            // We have a finished pojo line last one so need to make any updates to history as required
+            console.log("LAST LINE OBJ", this.lastlinep);
+
+
+            const bChanged = this.pojo.addToHistory(this.lastlinep);
+            if (bChanged) {
+                // Write out history file with new change
+                this.pojo.saveHistory(this.vault);
+            }
+        }
+        this.lastlinep = null;
+
         this.hint = "";
         if (line.length < settings.minWordTriggerLength) {
             return [];
@@ -56,7 +71,9 @@ class PojoSuggestionProvider implements SuggestionProvider {
             this.lasthint = hint;
         }
         console.log(`>>${line}<<`);
-        console.log("parsePojoLine", pobj);
+        console.log("parsePojoLine Object", pobj);
+
+        this.lastlinep = pobj;
 
         return this.pojo.getSuggestedValues(pobj);
     }
@@ -67,6 +84,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
     }
 
     async loadSuggestions (vault: Vault) {
+        this.vault = vault;
         const path = intoCompletrPath(vault, POJO_SETTINGS_FILE);
 
         console.log("HERE is the pojo settings LOADED " + path);
@@ -87,6 +105,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
 
         this.pojo = new PojoHelper(this, this.loadedPojoSettings);
+        this.lastlinep = null;
 
         await this.pojo.InitHistory(vault);
     }
@@ -118,7 +137,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
             if (!groupValue)
                 continue;
 
-            this.pojo.addToHistory(groupValue);
+            this.pojo.addToHistoryFromLine(groupValue);
         }
     }
 

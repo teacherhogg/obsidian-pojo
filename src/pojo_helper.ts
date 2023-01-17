@@ -1,6 +1,7 @@
 import { intoCompletrPath } from "./settings";
 import { Suggestion } from "./provider/provider";
 import { Vault } from "obsidian";
+import { stringify } from "querystring";
 
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
 const POJO_H3_PREFIX_REGEX = /^### /;
@@ -186,7 +187,7 @@ export class PojoHelper {
         return robj;
     }
 
-    addToHistory (line: string): boolean {
+    addToHistoryFromLine (line: string): boolean {
         if (!line) {
             return false;
         }
@@ -197,27 +198,34 @@ export class PojoHelper {
         const tobj: object = this.parsePojoLine(line);
         if (!tobj) { return false; }
         console.log("parsePojoLinen TOBJ", tobj);
+        return this.addToHistory(tobj);
+    }
+
+    addToHistory (tobj: object): boolean {
 
         const dbname = tobj._database.toLowerCase();
         const dbinfo = this.getDatabaseInfo(dbname);
+        console.log("addToHistory", tobj, dbinfo);
         if (!dbinfo) {
             console.error("ERROR getting database info for " + dbname);
             return false;
         }
 
+        let bChanged = false;
         if (dbinfo["field-info"]) {
             if (!this.loadedPojoHistory[dbname]) {
                 this.loadedPojoHistory[dbname] = {};
             }
 
-            console.log("DA HISTORY", this.loadedPojoHistory);
+            //            console.log("DA HISTORY", this.loadedPojoHistory);
             const finfo = dbinfo["field-info"];
             const self = this;
             for (const key in finfo) {
                 if (finfo[key].allowed) {
-                    console.log("HISTORY DO", tobj, finfo);
                     let bHistory = false;
                     let hkey;
+                    const multi = finfo[key].multi;
+                    console.log("HISTORY for " + key, finfo);
                     if (finfo[key].allowed == "history") {
                         hkey = key;
                         bHistory = true;
@@ -230,11 +238,8 @@ export class PojoHelper {
                         bHistory = true;
                     }
 
-                    if (bHistory) {
+                    if (bHistory && tobj[key]) {
                         hkey = hkey.toLowerCase();
-                        if (!this.loadedPojoHistory[dbname]) {
-                            this.loadedPojoHistory[dbname] = {};
-                        }
                         if (!this.loadedPojoHistory[dbname][hkey]) {
                             this.loadedPojoHistory[dbname][hkey] = [];
                         }
@@ -243,6 +248,7 @@ export class PojoHelper {
                             if (!ival) { return; }
                             console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory[dbname]);
                             if (!self.loadedPojoHistory[dbname][hkey].includes(ival)) {
+                                bChanged = true;
                                 self.loadedPojoHistory[dbname][hkey].push(ival);
                             }
                         }
@@ -251,24 +257,31 @@ export class PojoHelper {
                             for (const val of tobj[key]) {
                                 _addItem(val);
                             }
+                        } else if (multi) {
+                            const avals = tobj[key].split(multi);
+                            for (const val2 of avals) {
+                                _addItem(val2);
+                            }
                         } else {
                             _addItem(tobj[key]);
                         }
                     }
-
                 }
             }
         }
+
+        return bChanged;
     }
 
     private getHistoryValues (dinfo: object, dkey: string): string[] {
 
         const dbname = dinfo.database.toLowerCase();
         dkey = dkey.toLowerCase();
+        console.log("getHistoryValues with " + dkey);
 
         if (this.loadedPojoHistory[dbname]) {
             if (this.loadedPojoHistory[dbname][dkey]) {
-                //                console.log("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory[dbname][dkey]);
+                console.log("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory[dbname][dkey]);
                 return this.loadedPojoHistory[dbname][dkey];
             }
         }
@@ -429,6 +442,7 @@ export class PojoHelper {
 
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
+
         if (!pobj || !pobj._loc) { return null; }
 
         let values = [];
@@ -448,7 +462,18 @@ export class PojoHelper {
             }
 
             const svalues = this.getValues(dinfo, pobj._loc, pobj._type);
-            values = this.filterValues(pobj._locval, svalues);
+
+            let locval = pobj._locval;
+            if (dinfo["field-info"] && dinfo["field-info"][pobj._loc]) {
+                const multi = dinfo["field-info"][pobj._loc].multi;
+                if (multi) {
+                    console.log("WE DOING multi " + multi, dinfo, pobj);
+                    const avals = locval.split(multi);
+                    locval = avals[avals.length - 1].trim();
+                    console.log("MULTI FILTER VALS ", avals, locval);
+                }
+            }
+            values = this.filterValues(locval, svalues);
         }
         return values;
     }
@@ -468,7 +493,7 @@ export class PojoHelper {
     }
 
     private getValues (dinfo: object, pname: string, type?: string): string[] | null {
-        //        console.log("getValues with " + pname + " type: " + type, dinfo);
+        console.log("getValues with " + pname + " type: " + type, dinfo);
         if (!dinfo["field-info"] || !dinfo["field-info"][pname]) {
             return [];
         }
@@ -490,7 +515,7 @@ export class PojoHelper {
             if (finfo.values && finfo.values[type]) {
                 values = finfo.values[type];
             }
-            return [...new Set([...values, ...this.getHistoryValues(dinfo, pname + "-" + type)])];
+            return [...new Set([...values, ...this.getHistoryValues(dinfo, type + "-" + pname)])];
         } else if (finfo.allowed == "history") {
             let values = [];
             if (finfo.values && finfo.values["_ALL"]) {
