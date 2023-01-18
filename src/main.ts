@@ -106,7 +106,7 @@ export default class CompletrPlugin extends Plugin {
 
         // POJO Action Dialog
         this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
-            Pojo.pojoZap(this.app);
+            Pojo.pojoZap(this.app, false);
         })
 
         this.addCommand({

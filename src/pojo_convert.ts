@@ -149,7 +149,7 @@ export class PojoConvert {
                 return;
             }
         }
-        this.logs.tracking = loadedPojoHistory;
+        this.logs.tracking = tracking;
     }
 
     private getInputFiles (folder): TFile[] {

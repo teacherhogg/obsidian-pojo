@@ -22,3 +22,6 @@ blacklisted_suggestions.txt
 callout_suggestions.json
 latex_commands.json
 wordLists
+pojo_history.json
+pojo_settings.json
+

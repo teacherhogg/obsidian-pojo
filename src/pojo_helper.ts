@@ -14,10 +14,12 @@ export class PojoHelper {
     private pojoProvider: object;
     private loadedPojoDB: Record<string, never>;
     private loadedPojoHistory: object;
+    private nohistoryx: boolean;
 
     constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
         this.pojoProvider = pojoProvider;
         this.settings = pojosettings;
+        this.nohistoryx = false;
 
         const dbinfo = {};
         const dbkeys = [];
@@ -30,20 +32,48 @@ export class PojoHelper {
 
     }
 
+    getLogs () {
+        console.log("HELPER LOGS", logs);
+        return logs;
+    }
+
+    getHistory () {
+        return this.loadedPojoHistory;
+    }
+
+    getHistoryVersion () {
+        if (this.loadedPojoHistory) {
+            console.log("HERE is the pojo version history", this.loadedPojoHistory);
+            return this.loadedPojoHistory.version + " (" + this.loadedPojoHistory.numsaves + ") ";
+        } else {
+            return "Not Available";
+        }
+    }
+
     async InitHistory (vault: Vault) {
         let loadedPojoHistory: object;
         const path = intoCompletrPath(vault, POJO_HISTORY_FILE);
         if (!(await vault.adapter.exists(path))) {
-            loadedPojoHistory = {};
+            logError("NO History file found to load: " + path);
+            loadedPojoHistory = {
+                "version": "???",
+                "databases": {}
+            };
         } else {
             try {
                 loadedPojoHistory = await loadFromFile(vault, path);
             } catch (e) {
-                console.error("ERROR loading Pojo History", e);
+                logError("ERROR loading Pojo History", e);
                 return;
             }
         }
         this.loadedPojoHistory = loadedPojoHistory;
+        if (!loadedPojoHistory.version) {
+            logError("ERROR in history file!", loadedPojoHistory);
+            return;
+        }
+        console.log("POJO VERSION HISTORY " + this.loadedPojoHistory.version);
+        logError("23ja18W 9:00");
     }
 
     getDatabases (): string[] {
@@ -213,8 +243,8 @@ export class PojoHelper {
 
         let bChanged = false;
         if (dbinfo["field-info"]) {
-            if (!this.loadedPojoHistory[dbname]) {
-                this.loadedPojoHistory[dbname] = {};
+            if (!this.loadedPojoHistory.databases[dbname]) {
+                this.loadedPojoHistory.databases[dbname] = {};
             }
 
             //            console.log("DA HISTORY", this.loadedPojoHistory);
@@ -240,16 +270,16 @@ export class PojoHelper {
 
                     if (bHistory && tobj[key]) {
                         hkey = hkey.toLowerCase();
-                        if (!this.loadedPojoHistory[dbname][hkey]) {
-                            this.loadedPojoHistory[dbname][hkey] = [];
+                        if (!this.loadedPojoHistory.databases[dbname][hkey]) {
+                            this.loadedPojoHistory.databases[dbname][hkey] = [];
                         }
 
                         const _addItem = function (ival) {
                             if (!ival) { return; }
-                            console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory[dbname]);
-                            if (!self.loadedPojoHistory[dbname][hkey].includes(ival)) {
+                            console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                            if (!self.loadedPojoHistory.databases[dbname][hkey].includes(ival)) {
                                 bChanged = true;
-                                self.loadedPojoHistory[dbname][hkey].push(ival);
+                                self.loadedPojoHistory.databases[dbname][hkey].push(ival);
                             }
                         }
 
@@ -277,12 +307,13 @@ export class PojoHelper {
 
         const dbname = dinfo.database.toLowerCase();
         dkey = dkey.toLowerCase();
-        console.log("getHistoryValues with " + dkey);
+        console.log("getHistoryValues with " + dkey, this.loadedPojoHistory);
 
-        if (this.loadedPojoHistory[dbname]) {
-            if (this.loadedPojoHistory[dbname][dkey]) {
-                console.log("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory[dbname][dkey]);
-                return this.loadedPojoHistory[dbname][dkey];
+        if (this.loadedPojoHistory.databases[dbname]) {
+            if (this.loadedPojoHistory.databases[dbname][dkey]) {
+                console.log("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory.databases[dbname][dkey]);
+                console.log("pojoHistory for " + dbname, this.loadedPojoHistory.databases[dbname]);
+                return this.loadedPojoHistory.databases[dbname][dkey];
             }
         }
 
@@ -290,13 +321,32 @@ export class PojoHelper {
     }
 
     async deleteHistory (vault: Vault) {
-        this.loadedPojoHistory = {};
+
+        if (this.nohistoryx) {
+            return;
+        }
+
+        this.loadedPojoHistory = {
+            "version": "zzz",
+            "databases": {}
+        };
+
         await this.saveHistory(vault);
     }
 
     async saveHistory (vault: Vault) {
 
+        if (!this.loadedPojoHistory.hasOwnProperty("numsaves")) {
+            this.loadedPojoHistory.numsaves = 0;
+        }
+        this.loadedPojoHistory.numsaves++;
         console.log("POJO HISTORY!!", this.loadedPojoHistory);
+        if (this.nohistoryx) {
+            console.log("NO HISTORY CHANGES will be saved!!!");
+            return;
+        }
+
+        logError(">>> SAVING TO HISTORY " + this.loadedPojoHistory.numsaves);
 
         await vault.adapter.write(intoCompletrPath(vault, POJO_HISTORY_FILE), JSON.stringify(this.loadedPojoHistory, null, 3));
     }
@@ -598,10 +648,14 @@ export async function loadFromFile (vault: Vault, file: string) {
     return data;
 }
 
+const logs = {
+    errors: []
+}
+
 export function logError (msg: string, dobj?: object) {
-    //        logs.errors.push(name);
-    //        if (dobj) {
-    //            logs.errors.push(JSON.stringify(dobj, null, 3));
-    //        }
+    logs.errors.push(msg);
+    if (dobj) {
+        logs.errors.push("   " + JSON.stringify(dobj, null, 3));
+    }
     console.error(msg, dobj);
 }

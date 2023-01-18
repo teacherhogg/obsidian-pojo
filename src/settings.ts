@@ -1,4 +1,4 @@
-import {Vault} from "obsidian";
+import { Vault } from "obsidian";
 
 export const enum WordInsertionMode {
     MATCH_CASE_REPLACE = "Match-Case & Replace",
@@ -48,6 +48,9 @@ export const DEFAULT_SETTINGS: CompletrSettings = {
     pojoProviderEnabled: true,
 }
 
-export function intoCompletrPath(vault: Vault, ...path: string[]): string {
-    return vault.configDir + "/plugins/obsidian-completr/" + path.join("/");
+export function intoCompletrPath (vault: Vault, ...path: string[]): string {
+
+    //    return vault.adapter.basePath + "\\pojo\\" + path.join("\\");
+
+    return vault.configDir + "/plugins/obsidian-pojo/" + path.join("/");
 }

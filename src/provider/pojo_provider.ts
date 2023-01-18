@@ -65,8 +65,6 @@ class PojoSuggestionProvider implements SuggestionProvider {
         if (hint && hint != this.lasthint) {
             if (Platform.isDesktop) {
                 new Notice(hint, 3000);
-            } else {
-                new Notice(hint, 3000);
             }
             this.lasthint = hint;
         }
@@ -87,10 +85,10 @@ class PojoSuggestionProvider implements SuggestionProvider {
         this.vault = vault;
         const path = intoCompletrPath(vault, POJO_SETTINGS_FILE);
 
-        console.log("HERE is the pojo settings LOADED " + path);
+        console.log("HERE is the pojo settings PATH " + path);
 
         if (!(await vault.adapter.exists(path))) {
-            console.error("NO Pojo Settings file found!");
+            console.error("NO Pojo Settings file found!", path);
             this.loadedPojoSettings = undefined;
         } else {
             try {
@@ -128,6 +126,20 @@ class PojoSuggestionProvider implements SuggestionProvider {
         await this.pojo.deleteHistory(vault);
     }
 
+    getLogs () {
+        const logs = this.pojo.getLogs();
+        console.log("LOGS IN PROVIDER", logs);
+        return logs;
+    }
+
+    getHistoryVersion () {
+        return this.pojo.getHistoryVersion();
+    }
+
+    getHistory () {
+        return this.pojo.getHistory();
+    }
+
     async scanFile (settings: CompletrSettings, file: TFile) {
         const contents = await file.vault.cachedRead(file);
 
@@ -162,7 +174,9 @@ class PojoSuggestionProvider implements SuggestionProvider {
 
     pojoZap (app: object, bJustHint: boolean): null {
         console.log("HERE is hint " + this.hint);
-        new PojoZap(app, this.hint).open();
+        const logs = this.getLogs();
+        console.log("pojoZap on provider", logs);
+        new PojoZap(app, this.hint, this.getHistory(), logs).open();
     }
 
     private generateHint (robj: object): string | null {

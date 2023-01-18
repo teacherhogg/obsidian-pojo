@@ -346,6 +346,11 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                 }));
 
         this.createEnabledSetting("pojoProviderEnabled", "Whether or not the Power Obsidian Journaling provider is enabled", containerEl);
+
+        new Setting(containerEl)
+            .setName("History File")
+            .setDesc("The current history version is: " + Pojo.getHistoryVersion())
+
     }
 
     private async reloadWords () {
