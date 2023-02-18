@@ -1,5 +1,6 @@
 import { intoCompletrPath } from "./settings";
 import { Suggestion } from "./provider/provider";
+import { PojoConvert } from "./pojo_convert";
 import { Vault } from "obsidian";
 import { stringify } from "querystring";
 
@@ -31,6 +32,8 @@ export class PojoHelper {
         this.pojoDatabases = dbkeys;
 
     }
+
+    pojoConversion ()
 
     getLogs () {
         console.log("HELPER LOGS", logs);
@@ -231,17 +234,18 @@ export class PojoHelper {
         return this.addToHistory(tobj);
     }
 
-    addToHistory (tobj: object): boolean {
+    addToHistory (tobj: object): object[] | null {
 
         const dbname = tobj._database.toLowerCase();
         const dbinfo = this.getDatabaseInfo(dbname);
         console.log("addToHistory", tobj, dbinfo);
         if (!dbinfo) {
             console.error("ERROR getting database info for " + dbname);
-            return false;
+            return null;
         }
 
         let bChanged = false;
+        const changes = [];
         if (dbinfo["field-info"]) {
             if (!this.loadedPojoHistory.databases[dbname]) {
                 this.loadedPojoHistory.databases[dbname] = {};
@@ -279,7 +283,10 @@ export class PojoHelper {
                             console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
                             if (!self.loadedPojoHistory.databases[dbname][hkey].includes(ival)) {
                                 bChanged = true;
-                                self.loadedPojoHistory.databases[dbname][hkey].push(ival);
+                                console.log("ADDING THIS to " + dbname + " db -> " + hkey, ival);
+                                changes.push({ "database": dbname, "key": hkey, "value": ival });
+
+                                //                                self.loadedPojoHistory.databases[dbname][hkey].push(ival);
                             }
                         }
 
@@ -300,7 +307,106 @@ export class PojoHelper {
             }
         }
 
-        return bChanged;
+        if (bChanged) {
+            return changes;
+        } else {
+            return null;
+        }
+    }
+
+    async saveHistoryChanges (vault: Vault, changes: object[]): boolean {
+
+        for (const item of changes) {
+
+            const dbname = item.database;
+            const dbinfo = this.getDatabaseInfo(dbname);
+            if (!dbinfo) {
+                console.error("ERROR getting database info", item);
+            } else {
+                const hkey = item.key;
+                if (!this.loadedPojoHistory.databases[dbname]) {
+                    this.loadedPojoHistory.databases[dbname] = {};
+                }
+                if (!this.loadedPojoHistory.databases[dbname][hkey]) {
+                    this.loadedPojoHistory.databases[dbname][hkey] = [];
+                }
+                if (!this.loadedPojoHistory.databases[dbname][hkey].includes(item.value)) {
+                    this.loadedPojoHistory.databases[dbname][hkey].push(item.value);
+                }
+
+            }
+
+        }
+
+        await this.saveHistory(vault);
+
+        return true;
+    }
+
+    getHistoryChanges (tobj: object): object[] | null {
+
+        const dbname = tobj._database.toLowerCase();
+        const dbinfo = this.getDatabaseInfo(dbname);
+        console.log("getHistoryChanges from", tobj);
+        if (!dbinfo) {
+            console.error("ERROR getting database info for " + dbname);
+            return null;
+        }
+
+        let bChanged = false;
+        const changes = [];
+        const finfo = dbinfo["field-info"];
+        const self = this;
+        for (const key in finfo) {
+            if (finfo[key].allowed) {
+                let bHistory = false;
+                let hkey;
+                const multi = finfo[key].multi;
+                if (finfo[key].allowed == "history") {
+                    hkey = key;
+                    bHistory = true;
+                } else if (finfo[key].allowed == "history-type") {
+                    if (key == tobj._type) {
+                        hkey = key;
+                    } else {
+                        hkey = tobj._type + "-" + key;
+                    }
+                    bHistory = true;
+                }
+
+                if (bHistory && tobj[key]) {
+                    hkey = hkey.toLowerCase();
+
+                    const _addItem = function (ival) {
+                        if (!ival) { return; }
+                        console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                        if (!self.loadedPojoHistory.databases[dbname][hkey].includes(ival)) {
+                            bChanged = true;
+                            changes.push({ "database": dbname, "key": hkey, "value": ival });
+                        }
+                    }
+
+                    if (Array.isArray(tobj[key])) {
+                        for (const val of tobj[key]) {
+                            _addItem(val);
+                        }
+                    } else if (multi) {
+                        const avals = tobj[key].split(multi);
+                        for (const val2 of avals) {
+                            _addItem(val2);
+                        }
+                    } else {
+                        _addItem(tobj[key]);
+                    }
+                }
+            }
+        }
+
+        if (bChanged) {
+            return changes;
+        } else {
+            return null;
+        }
     }
 
     private getHistoryValues (dinfo: object, dkey: string): string[] {
@@ -524,8 +630,45 @@ export class PojoHelper {
                 }
             }
             values = this.filterValues(locval, svalues);
+            console.log("JUST FILTERED with " + locval, svalues);
+            console.log("HERE is values", values);
         }
         return values;
+    }
+
+    // Parse for key:: value pairs.
+    parseForAnnotations (line: string): object | null {
+
+        const aval = line.split("::");
+        if (aval.length > 1) {
+            if (aval[0] && aval[1]) {
+                const key = this.normalizeReference(aval[0]);
+                const value = this.normalizeValue(aval[1]);
+                const robj = {};
+                robj[key] = value;
+                return robj;
+            }
+        }
+
+        return null;
+    }
+
+    private normalizeReference (ref: string): object {
+        // Tags and Header3 sections are case insensitive but normalized to a canonical form.
+        const a = ref.split("/");
+        if (a.length == 1) {
+            // NOT actually a database name, just the normalized value
+            return this.normalizeValue(ref);
+        } else {
+            const norm = [];
+            for (w of a) {
+                norm.push(this.normalizeValue(w));
+            }
+            const nref = norm.join("/");
+            const database = norm[0];
+            const type = norm[1];
+            return { database, type, nref };
+        }
     }
 
     private filterValues (input: string, values: string[]): Suggestion[] {
@@ -649,8 +792,19 @@ export async function loadFromFile (vault: Vault, file: string) {
 }
 
 const logs = {
-    errors: []
+    errors: [],
+    debug: []
 }
+
+
+export function logDebug (category: string, msg: string, dobj?: object) {
+    if (!logs.debug[category]) { logs.debug[category] = []; }
+    logs.debug[category].push(msg);
+    if (dobj) {
+        logs.debug[category].push(JSON.stringify(dobj, null, 3));
+    }
+}
+
 
 export function logError (msg: string, dobj?: object) {
     logs.errors.push(msg);

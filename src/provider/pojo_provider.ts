@@ -6,7 +6,7 @@ import {
 import { CompletrSettings, intoCompletrPath } from "../settings";
 import { Notice, parseLinktext, TFile, Vault, Platform } from "obsidian";
 import { PojoHelper, loadFromFile } from "../pojo_helper";
-import { PojoZap } from "../pojo_dialog";
+import { PojoZap, PojoConfirm, DatabaseReview } from "../pojo_dialog";
 import { SuggestionBlacklist } from "./blacklist";
 import { platform } from "os";
 
@@ -37,12 +37,24 @@ class PojoSuggestionProvider implements SuggestionProvider {
         if (this.lastlinep && !line) {
             // We have a finished pojo line last one so need to make any updates to history as required
             console.log("LAST LINE OBJ", this.lastlinep);
+            const self = this;
 
+            const changes = this.pojo.getHistoryChanges(this.lastlinep);
+            if (changes) {
 
-            const bChanged = this.pojo.addToHistory(this.lastlinep);
-            if (bChanged) {
+                console.log("GOTS SOME CHNAGES!!", changes);
+
+                const saveHistoryChanges = async function (historyC) {
+                    console.log("HERE WE NEED TO DO THE SAVE DEED!", historyC);
+                    return await self.pojo.saveHistoryChanges(self.vault, historyC);
+                }
+
+                new PojoConfirm(app, changes, saveHistoryChanges).open();
+
+                console.log("DIS IS THE POJO CONFIRM DONE...");
+
                 // Write out history file with new change
-                this.pojo.saveHistory(this.vault);
+                //                this.pojo.saveHistory(this.vault);
             }
         }
         this.lastlinep = null;
@@ -172,11 +184,18 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
     }
 
+    pojoZap2 (app: object, bJustHint: boolean): null {
+        console.log("pojoZap2!");
+        const dbname = "events";
+        const history = this.getHistory();
+        new DatabaseReview(app, dbname, null, history.databases[dbname]).open();
+    }
+
     pojoZap (app: object, bJustHint: boolean): null {
         console.log("HERE is hint " + this.hint);
         const logs = this.getLogs();
         console.log("pojoZap on provider", logs);
-        new PojoZap(app, this.hint, this.getHistory(), logs).open();
+        new PojoZap(app, this.pojo, this.loadedPojoSettings, this.getHistory(), this.hint, logs).open();
     }
 
     private generateHint (robj: object): string | null {

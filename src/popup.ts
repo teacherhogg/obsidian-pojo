@@ -1,7 +1,7 @@
-import {Suggestion, SuggestionProvider} from "./provider/provider";
-import {Latex} from "./provider/latex_provider";
-import {WordList} from "./provider/word_list_provider";
-import {FileScanner} from "./provider/scanner_provider";
+import { Suggestion, SuggestionProvider } from "./provider/provider";
+import { Latex } from "./provider/latex_provider";
+import { WordList } from "./provider/word_list_provider";
+import { FileScanner } from "./provider/scanner_provider";
 import {
     App,
     Editor,
@@ -13,12 +13,12 @@ import {
     TFile
 } from "obsidian";
 import SnippetManager from "./snippet_manager";
-import {CompletrSettings} from "./settings";
-import {FrontMatter} from "./provider/front_matter_provider";
-import {matchWordBackwards} from "./editor_helpers";
-import {SuggestionBlacklist} from "./provider/blacklist";
-import {Callout} from "./provider/callout_provider";
-import {Pojo} from "./provider/pojo_provider";
+import { CompletrSettings } from "./settings";
+import { FrontMatter } from "./provider/front_matter_provider";
+import { matchWordBackwards } from "./editor_helpers";
+import { SuggestionBlacklist } from "./provider/blacklist";
+import { Callout } from "./provider/callout_provider";
+import { Pojo } from "./provider/pojo_provider";
 
 const PROVIDERS: SuggestionProvider[] = [FrontMatter, Pojo, Callout, Latex, FileScanner, WordList];
 
@@ -43,16 +43,16 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
         this.snippetManager = snippetManager;
 
         //Remove default key registrations
-        let self = this as any;
+        const self = this as any;
         self.scope.keys = [];
     }
 
-    getSuggestions(
+    getSuggestions (
         context: EditorSuggestContext
     ): Suggestion[] | Promise<Suggestion[]> {
         let suggestions: Suggestion[] = [];
 
-        for (let provider of PROVIDERS) {
+        for (const provider of PROVIDERS) {
             suggestions = [...suggestions, ...provider.getSuggestions({
                 ...context,
                 separatorChar: this.separatorChar
@@ -78,16 +78,23 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
             seen.add(suggestion.displayName);
             return true;
         });
-        return suggestions.length === 0 ? null : suggestions.filter(s => !SuggestionBlacklist.has(s));
+
+        console.log("ZULU SUGGESTS ", suggestions);
+
+        const bls = suggestions.length === 0 ? null : suggestions.filter(s => !SuggestionBlacklist.has(s));
+
+        console.log("BLS is ", bls);
+
+        return bls;
     }
 
-    onTrigger(cursor: EditorPosition, editor: Editor, file: TFile): EditorSuggestTriggerInfo | null {
+    onTrigger (cursor: EditorPosition, editor: Editor, file: TFile): EditorSuggestTriggerInfo | null {
         if (this.justClosed) {
             this.justClosed = false;
             return null;
         }
 
-        let {
+        const {
             query,
             separatorChar
         } = matchWordBackwards(editor, cursor, (char) => this.getCharacterRegex().test(char), this.settings.maxLookBackDistance);
@@ -103,7 +110,7 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
         };
     }
 
-    renderSuggestion(value: Suggestion, el: HTMLElement): void {
+    renderSuggestion (value: Suggestion, el: HTMLElement): void {
         el.addClass("completr-suggestion-item");
         if (value.color != null) {
             el.style.setProperty("--completr-suggestion-color", value.color);
@@ -125,7 +132,7 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
         el.appendChild(text);
     }
 
-    selectSuggestion(value: Suggestion, evt: MouseEvent | KeyboardEvent): void {
+    selectSuggestion (value: Suggestion, evt: MouseEvent | KeyboardEvent): void {
         const replacement = value.replacement;
         const start = typeof value !== "string" && value.overrideStart ? value.overrideStart : this.context.start;
 
@@ -143,39 +150,39 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
                 console.log("Completr: Please enable Live Preview mode to use snippets");
             }
         } else {
-            this.context.editor.setCursor({...start, ch: start.ch + replacement.length});
+            this.context.editor.setCursor({ ...start, ch: start.ch + replacement.length });
         }
 
         this.close();
         this.justClosed = true;
     }
 
-    selectNextItem(dir: SelectionDirection) {
+    selectNextItem (dir: SelectionDirection) {
         const self = this as any;
         // HACK: The second parameter has to be an instance of KeyboardEvent to force scrolling the selected item into
         // view
         self.suggestions.setSelectedItem(self.suggestions.selectedItem + dir, new KeyboardEvent("keydown"));
     }
 
-    getSelectedItem(): Suggestion {
+    getSelectedItem (): Suggestion {
         const self = this as any;
         return self.suggestions.values[self.suggestions.selectedItem];
     }
 
-    applySelectedItem() {
+    applySelectedItem () {
         const self = this as any;
         self.suggestions.useSelectedItem();
     }
 
-    isVisible(): boolean {
+    isVisible (): boolean {
         return (this as any).isOpen;
     }
 
-    preventNextTrigger() {
+    preventNextTrigger () {
         this.justClosed = true;
     }
 
-    private getCharacterRegex(): RegExp {
+    private getCharacterRegex (): RegExp {
         if (this.characterRegex !== this.settings.characterRegex)
             this.compiledCharacterRegex = new RegExp("[" + this.settings.characterRegex + "]", "u");
 

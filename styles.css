@@ -108,3 +108,22 @@ span.completr-suggestion-placeholder5 span {
 span.completr-suggestion-placeholder6 span {
     border-color: navajowhite;
 }
+
+.type-section-header.is-collapsed > .type-section-body {
+    display: none;
+}
+
+.tag-setting-header>div>div>.setting-item {
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.tag-collapse-indicator>svg {
+    height: 10px;
+    width: 10px;
+    margin-right: 8px;
+    transform: rotate(90deg);
+}
+
+.tag-collapse-indicator.is-collapsed>svg {
+    transform: rotate(0deg);
+}
