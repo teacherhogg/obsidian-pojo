@@ -64,7 +64,13 @@ export class PojoZap extends Modal {
                             this.app,
                             this.settings,
                             this.history,
-                            null).open();
+                            async (changed: object, changes: object[]) => {
+                                // changed is the history with edits, changes it the set of changes (already applied to changed)
+                                console.log("HERE is the edited history!!!", changed);
+                                console.log("NEED TO SAVE!!!", changes);
+                                await this.pojo.saveHistory(this.app.vault, changed);
+                                console.log("pojo",)
+                            }).open();
                     })
             )
 
@@ -74,6 +80,11 @@ export class PojoZap extends Modal {
                     .setButtonText("Convert THIS file")
                     .onClick(() => {
                         console.log('DOING THIS FILE CONVERT!!!');
+
+                        //                        console.log("TEMP TEMP TEMP")
+                        //                        const newhistory = modifyDatabaseHistory(this.history);
+                        //                        console.log("HERE is the newhistory", newhistory);
+                        //                        this.pojo.saveHistory(this.app.vault, newhistory);
 
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault);
                     })
@@ -94,6 +105,38 @@ export class PojoZap extends Modal {
         const { contentEl } = this;
         contentEl.empty();
     }
+}
+
+const capitalize = function (word) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+
+const modifyDatabaseHistory = function (dbhistory) {
+    console.log("HERE IS DBHISTORY", dbhistory);
+    const newhistory = {};
+    for (const dbname in dbhistory.databases) {
+        const capDBname = capitalize(dbname);
+        newhistory[capDBname] = {};
+
+        for (const key in dbhistory.databases[dbname]) {
+            const a1 = key.split("_");
+            for (let i1 = 0; i1 < a1.length; i1++) {
+                const a2 = a1[i1].split("-");
+                for (let i2 = 0; i2 < a2.length; i2++) {
+                    a2[i2] = capitalize(a2[i2]);
+                }
+                a1[i1] = a2.join("-")
+            }
+            const newkey = a1.join("_");
+            console.log("HERE is the newkey " + newkey + " == " + key);
+            newhistory[capDBname][newkey] = dbhistory.databases[dbname][key];
+        }
+    }
+
+    console.log("HERE is the new history", newhistory);
+    dbhistory.databases = newhistory;
+    return dbhistory;
 }
 
 export class PojoConfirm extends Modal {
@@ -200,13 +243,15 @@ export class DatabaseReview extends Modal {
     private dbinfo: object;
     private dbhistory: object;
     private saveChanges: any;
+    private changes: object[];
 
-    constructor(app: App, dbname: string, dbinfo: object, dbhistory: object, saveChanges: any) {
+    constructor(app: App, dbname: string, dbinfo: object, dbhistory: object, changes: object[], saveChanges: any) {
         super(app);
         this.app = app;
         this.dbname = dbname;
         this.dbinfo = dbinfo;
         this.dbhistory = dbhistory;
+        this.changes = changes;
         this.saveChanges = saveChanges;
     }
 
@@ -220,7 +265,28 @@ export class DatabaseReview extends Modal {
         return msg;
     }
 
-    private display () {
+    private getSectionTitle (key: string, dbhist: object[]) {
+        console.log("GetSectionTitle for " + key, dbhist);
+        console.log("DATABSE INFO", this.dbinfo);
+
+        const title = " 🔑 ";
+        if (key == this.dbinfo.type.toLowerCase()) {
+            return title + this.dbinfo.type;
+        } else {
+            for (const param of this.dbinfo.params) {
+                if (key == param.toLowerCase()) {
+                    return title + param;
+                } else {
+                    const ap = param.split("-");
+                    //                    if (this.dbinfo["field-info"] && this.dbinfo["field-info"][])
+                }
+            }
+        }
+
+        return + key;
+    }
+
+    private display (expanded) {
         const self = this;
         const { contentEl } = this;
 
@@ -242,11 +308,17 @@ export class DatabaseReview extends Modal {
         for (let idx = 0; idx < keys.length; idx++) {
             const key = keys[idx];
             const sec = new BaseTagSetting();
-            const sectDiv = contentEl.createDiv("type-section-header is-collapsed");
+
+            let cldiv = "type-section-header";
+            if (expanded !== idx + 1) {
+                cldiv += " is-collapsed";
+            }
+            const sectDiv = contentEl.createDiv(cldiv);
             const sectHeader = sectDiv.createDiv();
             const secBody = sectDiv.createDiv("type-section-body");
             const secTitle = sec.generateTitle(sectHeader, sectDiv, false);
-            secTitle.nameEl.createSpan().setText(" 🔑 " + key);
+            const titleText = self.getSectionTitle(key, this.dbhistory[key])
+            secTitle.nameEl.createSpan().setText(titleText);
 
             for (let idx2 = 0; idx2 < this.dbhistory[key].length; idx2++) {
                 const val = this.dbhistory[key][idx2];
@@ -258,6 +330,25 @@ export class DatabaseReview extends Modal {
                         .setTooltip("Edit")
                         .onClick(async () => {
                             console.log("Edit ITEM!!!!");
+                            new EditModal(
+                                this.app,
+                                "Editing Value",
+                                "Note that this does not change the previous value used in existing daily notes.",
+                                val,
+                                button => button
+                                    .setButtonText("Save"),
+                                async (editedval: string) => {
+                                    console.log("The edited value is " + editedval);
+                                    this.changes.push({
+                                        database: this.dbname,
+                                        key: key,
+                                        value: editedval,
+                                        type: 'edit',
+                                        index: idx2
+                                    });
+                                    this.dbhistory[key][idx2] = editedval;
+                                    this.display(idx + 1);
+                                }).open();
                         })
                     )
                     .addExtraButton((button) => button
@@ -272,8 +363,14 @@ export class DatabaseReview extends Modal {
                                     .setButtonText("Delete")
                                     .setWarning(),
                                 async () => {
+                                    this.changes.push({
+                                        database: this.dbname,
+                                        key: key,
+                                        type: 'delete',
+                                        index: idx2
+                                    });
                                     this.dbhistory[key].splice(idx2, 1);
-                                    this.display();
+                                    this.display(idx + 1);
                                 }).open();
                         })
                     ).settingEl.addClass("completr-settings-list-item");
@@ -292,8 +389,14 @@ export class DatabaseReview extends Modal {
                     .setTooltip("Add")
                     .onClick(async () => {
                         console.log("ADD NEW ITEM!!!! " + sectext);
+                        this.changes.push({
+                            database: this.dbname,
+                            key: key,
+                            value: sectext,
+                            type: 'new'
+                        });
                         this.dbhistory[key].push(sectext);
-                        this.display();
+                        this.display(idx + 1);
                     })
                 ).settingEl.addClass("completr-settings-list-item");
 
@@ -305,8 +408,8 @@ export class DatabaseReview extends Modal {
                     .setButtonText("Save Changes")
                     .setCta()
                     .onClick(() => {
-                        console.log('Saving TIMES!', this.changes);
-                        self.saveChanges(self.changes);
+                        console.log('Saving TIMES!');
+                        self.saveChanges(self.dbhistory, self.changes);
                         self.close();
                     })
             )
@@ -323,6 +426,7 @@ class DatabaseList extends Modal {
     private history: object;
     private settings: object;
     private saveChanges: any;
+    private changes: object[];
 
     constructor(app: App, settings: object, history: object, saveChanges: any) {
         super(app);
@@ -330,6 +434,7 @@ class DatabaseList extends Modal {
         this.settings = settings;
         this.history = history;
         this.saveChanges = saveChanges;
+        this.changes = [];
     }
 
     async onOpen () {
@@ -363,15 +468,15 @@ class DatabaseList extends Modal {
         const listDiv = contentEl.createDiv();
         for (let idx = 0; idx < databases.length; idx++) {
             const dbname = databases[idx].database;
-            const msg = self.getItemString(databases[idx], this.history.databases[dbname]);
+            //            console.log("database " + dbname, this.history);
+            const msg = self.getItemString(databases[idx], this.history.databases[dbname.toLowerCase()]);
             new Setting(listDiv)
                 .setName(msg)
                 .addExtraButton((button) => button
                     .setIcon("magnifying-glass")
                     .setTooltip("View History of " + dbname)
                     .onClick(async () => {
-                        console.log("VIEW 222 " + dbname);
-                        new DatabaseReview(this.app, dbname, databases[idx], self.history.databases[dbname.toLowerCase()], self.saveChanges).open();
+                        new DatabaseReview(this.app, dbname, databases[idx], self.history.databases[dbname.toLowerCase()], self.changes, self.saveChanges).open();
                     })
                 ).settingEl.addClass("completr-settings-list-item");
         }
@@ -404,6 +509,34 @@ class ConfirmationModal extends Modal {
                 buttonCallback(button);
                 button.onClick(async () => {
                     await clickCallback();
+                    this.close();
+                })
+            })
+            .addButton(button => button
+                .setButtonText("Cancel")
+                .onClick(() => this.close())).settingEl.addClass("completr-settings-no-border");
+    }
+}
+
+class EditModal extends Modal {
+
+    constructor(app: App, title: string, body: string, inputtext: string, buttonCallback: (button: ButtonComponent) => void, clickCallback: (editval: string) => Promise<void>) {
+        super(app);
+        let edittext = inputtext;
+        this.titleEl.setText(title);
+        this.contentEl.setText(body);
+        new Setting(this.modalEl)
+            .addText(text => text
+                .setValue(edittext)
+                .onChange(async val => {
+                    console.log("EDITED " + val);
+                    edittext = val;
+                })
+            )
+            .addButton(button => {
+                buttonCallback(button);
+                button.onClick(async () => {
+                    await clickCallback(edittext);
                     this.close();
                 })
             })

@@ -25,7 +25,7 @@ export class PojoHelper {
         const dbinfo = {};
         const dbkeys = [];
         for (const db of this.settings.databases.info) {
-            dbinfo[db.database.toLowerCase()] = db;
+            dbinfo[db.database] = db;
             dbkeys.push(db.database);
         }
         this.loadedPojoDB = dbinfo;
@@ -84,9 +84,10 @@ export class PojoHelper {
     }
 
     getDatabaseInfo (dbname: string): object | null {
-        const dbinfo = this.loadedPojoDB[dbname.toLocaleLowerCase()];
+        const dbinfo = this.loadedPojoDB[dbname];
         if (!dbinfo) {
             console.error("ERROR missing database info in pojo settings", dbname);
+            console.error("dbinfo is ", this.loadedPojoDB);
             return null;
         }
         return dbinfo;
@@ -236,7 +237,7 @@ export class PojoHelper {
 
     addToHistory (tobj: object): object[] | null {
 
-        const dbname = tobj._database.toLowerCase();
+        const dbname = tobj._database;
         const dbinfo = this.getDatabaseInfo(dbname);
         console.log("addToHistory", tobj, dbinfo);
         if (!dbinfo) {
@@ -267,13 +268,12 @@ export class PojoHelper {
                         if (key == tobj._type) {
                             hkey = key;
                         } else {
-                            hkey = tobj._type + "-" + key;
+                            hkey = tobj._type + "_" + key;
                         }
                         bHistory = true;
                     }
 
                     if (bHistory && tobj[key]) {
-                        hkey = hkey.toLowerCase();
                         if (!this.loadedPojoHistory.databases[dbname][hkey]) {
                             this.loadedPojoHistory.databases[dbname][hkey] = [];
                         }
@@ -345,7 +345,7 @@ export class PojoHelper {
 
     getHistoryChanges (tobj: object): object[] | null {
 
-        const dbname = tobj._database.toLowerCase();
+        const dbname = tobj._database;
         const dbinfo = this.getDatabaseInfo(dbname);
         console.log("getHistoryChanges from", tobj);
         if (!dbinfo) {
@@ -369,14 +369,12 @@ export class PojoHelper {
                     if (key == tobj._type) {
                         hkey = key;
                     } else {
-                        hkey = tobj._type + "-" + key;
+                        hkey = tobj._type + "_" + key;
                     }
                     bHistory = true;
                 }
 
                 if (bHistory && tobj[key]) {
-                    hkey = hkey.toLowerCase();
-
                     const _addItem = function (ival) {
                         if (!ival) { return; }
                         console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
@@ -411,8 +409,7 @@ export class PojoHelper {
 
     private getHistoryValues (dinfo: object, dkey: string): string[] {
 
-        const dbname = dinfo.database.toLowerCase();
-        dkey = dkey.toLowerCase();
+        const dbname = dinfo.database;
         console.log("getHistoryValues with " + dkey, this.loadedPojoHistory);
 
         if (this.loadedPojoHistory.databases[dbname]) {
@@ -440,7 +437,12 @@ export class PojoHelper {
         await this.saveHistory(vault);
     }
 
-    async saveHistory (vault: Vault) {
+    async saveHistory (vault: Vault, override: object) {
+
+        if (override) {
+            console.log("WILL be overriding the history with supplied object!", override);
+            this.loadedPojoHistory = override;
+        }
 
         if (!this.loadedPojoHistory.hasOwnProperty("numsaves")) {
             this.loadedPojoHistory.numsaves = 0;
@@ -479,7 +481,7 @@ export class PojoHelper {
 
         const robj = {};
 
-        robj._database = taga[0];
+        robj._database = this.normalizeValue(taga[0]);
         robj._type = "";
         if (taga.length > 1) {
             robj._type = taga[1];
@@ -498,7 +500,7 @@ export class PojoHelper {
             const tinfo = finfo[dbinfo.type];
             if (tinfo && tinfo.allowed && tinfo.allowed == "fixed" && tinfo.values) {
                 const vals = tinfo.values["_ALL"];
-                const allowed = vals.find(el => el.toLowerCase() == robj._type.toLowerCase());
+                const allowed = vals.find(el => el == robj._type);
                 if (!allowed) {
                     const emsg = "INVALID type value for database " + robj._database;
                     logError(emsg, robj.type);
@@ -537,7 +539,7 @@ export class PojoHelper {
                                             if (finfo[pkey].values["_ALL"] || finfo[pkey].values[robj[dbinfo.type]]) {
                                                 const alla = finfo[pkey].values["_ALL"] ? finfo[pkey].values["_ALL"] : finfo[pkey].values[robj[dbinfo.type]];
                                                 const allowedp = alla.find(el => {
-                                                    if (el.toLowerCase() == p.toLowerCase()) {
+                                                    if (el == p) {
                                                         return true;
                                                     }
                                                     return false;
@@ -592,6 +594,8 @@ export class PojoHelper {
                 }
             }
         }
+
+        console.log("HERE IS ROBJ", robj);
 
         return robj;
     }
