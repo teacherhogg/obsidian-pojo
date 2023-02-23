@@ -10,6 +10,7 @@ import {
     EditorSuggestContext,
     EditorSuggestTriggerInfo,
     getIcon,
+    Instruction,
     TFile
 } from "obsidian";
 import SnippetManager from "./snippet_manager";
@@ -45,6 +46,14 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
         //Remove default key registrations
         const self = this as any;
         self.scope.keys = [];
+    }
+
+    setInstructions (instructions: Instruction[]): void {
+        const newinst: Instruction = {
+            purpose: "This is purpose",
+            command: "So much command!"
+        }
+        instructions.push(newinst);
     }
 
     getSuggestions (

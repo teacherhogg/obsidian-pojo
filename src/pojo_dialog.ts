@@ -34,10 +34,10 @@ export class PojoZap extends Modal {
         const { contentEl } = this;
         console.log("HISTORY DIALOG", this.history, this.logs);
 
-        if (this.currentFile) {
-            const data = await this.app.vault.read(this.currentFile);
-            console.log("HERE is current file content!", data);
-        }
+        //        if (this.currentFile) {
+        //            const data = await this.app.vault.read(this.currentFile);
+        //            console.log("HERE is current file content!", data);
+        //        }
 
         let msg;
         if (this.hint) {
@@ -69,7 +69,7 @@ export class PojoZap extends Modal {
                                 console.log("HERE is the edited history!!!", changed);
                                 console.log("NEED TO SAVE!!!", changes);
                                 await this.pojo.saveHistory(this.app.vault, changed);
-                                console.log("pojo",)
+                                console.log("PojoZap History SAVED!!!",)
                             }).open();
                     })
             )
@@ -78,15 +78,17 @@ export class PojoZap extends Modal {
             .addButton((btn) =>
                 btn
                     .setButtonText("Convert THIS file")
-                    .onClick(() => {
+                    .onClick(async () => {
                         console.log('DOING THIS FILE CONVERT!!!');
 
-                        //                        console.log("TEMP TEMP TEMP")
+                        //                        console.log("TEMP FIXUP HISTORY FILE CASES")
                         //                        const newhistory = modifyDatabaseHistory(this.history);
                         //                        console.log("HERE is the newhistory", newhistory);
                         //                        this.pojo.saveHistory(this.app.vault, newhistory);
 
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault);
+                        await convert.convertDailyNote(this.currentFile);
+                        console.log("Conversion Completed.");
                     })
             )
 
@@ -266,24 +268,27 @@ export class DatabaseReview extends Modal {
     }
 
     private getSectionTitle (key: string, dbhist: object[]) {
-        console.log("GetSectionTitle for " + key, dbhist);
-        console.log("DATABSE INFO", this.dbinfo);
 
+        let nitems = 0;
+        if (dbhist) {
+            nitems = dbhist.length;
+        }
+        const suffix = ` (${nitems})`;
         const title = " 🔑 ";
-        if (key == this.dbinfo.type.toLowerCase()) {
-            return title + this.dbinfo.type;
+        let middle = "";
+        if (key == this.dbinfo.type) {
+            return title + this.dbinfo.type + suffix;
         } else {
             for (const param of this.dbinfo.params) {
-                if (key == param.toLowerCase()) {
-                    return title + param;
-                } else {
-                    const ap = param.split("-");
-                    //                    if (this.dbinfo["field-info"] && this.dbinfo["field-info"][])
+                if (key == param) {
+                    return title + param + suffix;
                 }
             }
         }
 
-        return + key;
+        const ap = key.split("_");
+        middle = ap.join(" ");
+        return title + middle + suffix;
     }
 
     private display (expanded) {
@@ -400,6 +405,9 @@ export class DatabaseReview extends Modal {
                     })
                 ).settingEl.addClass("completr-settings-list-item");
 
+            new Setting(secBody)
+                .setName('')
+
         }
 
         new Setting(contentEl)
@@ -408,8 +416,8 @@ export class DatabaseReview extends Modal {
                     .setButtonText("Save Changes")
                     .setCta()
                     .onClick(() => {
-                        console.log('Saving TIMES!');
-                        self.saveChanges(self.dbhistory, self.changes);
+                        console.log('Saving TIMES! DatabaseReview', self.dbhistory);
+                        self.saveChanges(self.dbname, self.dbhistory, self.changes);
                         self.close();
                     })
             )
@@ -441,6 +449,7 @@ class DatabaseList extends Modal {
         console.log("DatabaseList Dialog");
         this.display();
     }
+
     private getItemString (item: object, dbhist: object): string {
         let msg = "📁" + item.database;
         let nitems = 0;
@@ -469,14 +478,25 @@ class DatabaseList extends Modal {
         for (let idx = 0; idx < databases.length; idx++) {
             const dbname = databases[idx].database;
             //            console.log("database " + dbname, this.history);
-            const msg = self.getItemString(databases[idx], this.history.databases[dbname.toLowerCase()]);
+            const msg = self.getItemString(databases[idx], this.history.databases[dbname]);
             new Setting(listDiv)
                 .setName(msg)
                 .addExtraButton((button) => button
                     .setIcon("magnifying-glass")
                     .setTooltip("View History of " + dbname)
                     .onClick(async () => {
-                        new DatabaseReview(this.app, dbname, databases[idx], self.history.databases[dbname.toLowerCase()], self.changes, self.saveChanges).open();
+                        new DatabaseReview(
+                            this.app,
+                            dbname,
+                            databases[idx],
+                            self.history.databases[dbname],
+                            self.changes,
+                            async (dbname: string, changed: object, changes: object[]) => {
+                                console.log("DatabaseReview for " + dbname, changed, changes);
+                                self.history.databases[dbname] = changed;
+                                self.saveChanges(self.history, changes);
+                            }
+                        ).open();
                     })
                 ).settingEl.addClass("completr-settings-list-item");
         }

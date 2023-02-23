@@ -16,11 +16,13 @@ export class PojoHelper {
     private loadedPojoDB: Record<string, never>;
     private loadedPojoHistory: object;
     private nohistoryx: boolean;
+    private defsec: string;
 
     constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
         this.pojoProvider = pojoProvider;
         this.settings = pojosettings;
         this.nohistoryx = false;
+        this.defsec = this.settings.daily_entry_h3[0];
 
         const dbinfo = {};
         const dbkeys = [];
@@ -76,7 +78,7 @@ export class PojoHelper {
             return;
         }
         console.log("POJO VERSION HISTORY " + this.loadedPojoHistory.version);
-        logError("23ja18W 9:00");
+        logError("23fe23R 10:00");
     }
 
     getDatabases (): string[] {
@@ -84,6 +86,11 @@ export class PojoHelper {
     }
 
     getDatabaseInfo (dbname: string): object | null {
+
+        if (dbname == this.defsec) {
+            return null;
+        }
+
         const dbinfo = this.loadedPojoDB[dbname];
         if (!dbinfo) {
             console.error("ERROR missing database info in pojo settings", dbname);
@@ -484,7 +491,7 @@ export class PojoHelper {
         robj._database = this.normalizeValue(taga[0]);
         robj._type = "";
         if (taga.length > 1) {
-            robj._type = taga[1];
+            robj._type = this.normalizeValue(taga[1]);
         }
 
         const dbinfo = this.getDatabaseInfo(robj._database);
@@ -602,6 +609,7 @@ export class PojoHelper {
 
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
+        console.log("getSuggestedValues", pobj);
 
         if (!pobj || !pobj._loc) { return null; }
 
@@ -712,7 +720,7 @@ export class PojoHelper {
             if (finfo.values && finfo.values[type]) {
                 values = finfo.values[type];
             }
-            return [...new Set([...values, ...this.getHistoryValues(dinfo, type + "-" + pname)])];
+            return [...new Set([...values, ...this.getHistoryValues(dinfo, type + "_" + pname)])];
         } else if (finfo.allowed == "history") {
             let values = [];
             if (finfo.values && finfo.values["_ALL"]) {
