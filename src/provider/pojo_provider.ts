@@ -32,14 +32,23 @@ class PojoSuggestionProvider implements SuggestionProvider {
         const { editor } = context;
         const lineNumber = context.start.line;
         let line = editor.getLine(lineNumber);
-        console.log("pojo line analysis >>" + line + "<<");
+        console.warn("pojo line analysis >>" + line + "<<");
+
 
         if (this.lastlinep && !line) {
             // We have a finished pojo line last one so need to make any updates to history as required
-            console.log("LAST LINE OBJ", this.lastlinep);
-            const self = this;
+            let lineprev = editor.getLine(lineNumber - 1);
+            console.log("(Previous line >>" + lineprev + "<<)");
 
-            const changes = this.pojo.getHistoryChanges(this.lastlinep);
+            let pobjprev: object = null;
+            if (lineprev) {
+                lineprev = this.pojo.stripLeading(lineprev)
+                pobjprev = this.pojo.parsePojoLine(lineprev);
+            }
+            console.log("Previous Line Object", pobjprev);
+
+            const self = this;
+            const changes = this.pojo.getHistoryChanges(pobjprev);
             if (changes) {
 
                 console.log("GOTS SOME CHNAGES!!", changes);
@@ -114,10 +123,10 @@ class PojoSuggestionProvider implements SuggestionProvider {
             }
         }
 
-        this.pojo = new PojoHelper(this, this.loadedPojoSettings);
+        this.pojo = new PojoHelper(this, this.loadedPojoSettings, vault);
         this.lastlinep = null;
 
-        await this.pojo.InitHistory(vault);
+        await this.pojo.InitHistory();
     }
 
     async scanFiles (settings: CompletrSettings, files: TFile[]) {
@@ -201,8 +210,8 @@ class PojoSuggestionProvider implements SuggestionProvider {
     private generateHint (robj: object): string | null {
         if (!robj || !robj._database) { return null; }
         const dinfo = this.pojo.getDatabaseInfo(robj._database);
-        console.log("DINFO", dinfo);
-        console.log("robj", robj);
+        //        console.log("DINFO", dinfo);
+        //        console.log("robj", robj);
         let hint = `${dinfo.database}/`;
         if (robj[dinfo.type]) {
             hint += robj[dinfo.type];

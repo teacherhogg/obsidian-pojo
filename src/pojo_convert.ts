@@ -3,6 +3,7 @@ import { intoCompletrPath } from "./settings";
 import { logError, logDebug } from "./pojo_helper"
 import { parse } from "@textlint/markdown-to-ast";
 import { path } from "path";
+import matter from 'gray-matter';
 
 const imageactions = {
     convert: [],
@@ -36,38 +37,140 @@ export class PojoConvert {
         this.currentdb = this.settings.daily_entry_h3[0];
     }
 
-    async convertDailyNote (noteFile: Tfile): Promise<boolean> {
+    async convertDailyNote (noteFile: Tfile): Promise<object> {
 
         console.log("Converting Daily Note ", noteFile);
 
-        // Start import of list of markdown files
-        const exportContent = {
-            diary: {},
-            notes: []
-        };
+        // Start import of Daily Note markdown file.
+        let origcontent = null;
+        let frontmatter = null;
+        let diarydate = null;
+        let parsedcontent = null;
         try {
-            await this.markdownImportFile(exportContent, noteFile);
-        } catch (err) {
-            logError("ERROR on markdownImport!", err);
-        }
-        console.log("FINISHED import of markdown file", exportContent);
-        logDebug("exported", "FOUND FOR EXPORT", exportContent);
 
-        const nrecords = Object.keys(exportContent.diary).length;
-        console.log("BEGIN export of " + nrecords + " content entries to obsidian vault");
+            // Get file contents
+            origcontent = await noteFile.vault.cachedRead(noteFile);
+
+            // Extract any YAML
+            const filematter = matter(origcontent);
+            frontmatter = filematter.data;
+
+            // TODO - Check to see if Daily Note has ALREADY been converted!
+            if (frontmatter && frontmatter.POJO) {
+                console.log("Already Converted!", frontmatter);
+                return {
+                    "type": "noconvert_alreadyconverted",
+                    "msg": "This note has already been converted previously."
+                }
+            }
+
+            // Parse the markdown contents
+            this.currentfile = noteFile;
+            this.currentdb = this.defsec;
+            this.currentidx = 0;
+            parsedcontent = this.parseMarkdown(filematter.content);
+            this.currentfile = null;
+
+            // Check to see IF this is actually a daily note
+            if (!parsedcontent) {
+                console.log("NOT a daily note!");
+                return {
+                    "type": "noconvert_notdailynote",
+                    "msg": "This is NOT a POJO compliant daily note."
+                };
+            } else if (!parsedcontent[this.defsec] || !parsedcontent[this.defsec][0].Date) {
+                console.log("Some type of markdown note, but NOT a daily note!", parsedcontent);
+                return {
+                    "type": "noconvert_markdownnote",
+                    "msg": "This is a markdown note, but not a POJO compliant daily note."
+                };
+            } else {
+                diarydate = parsedcontent[this.defsec][0].Date;
+            }
+
+            //            exportContent = await this.markdownImportFile(noteFile);
+        } catch (err) {
+            logError("ERROR on importing and parsing markdown!", err);
+            return {
+                "type": "error_parsing",
+                "msg": "Error Encountered: " + err.message
+            }
+        }
+
+        console.warn("FINISHED import of markdown file", parsedcontent);
+        logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
+
+        // First Archive the original daily note
+        await this.pojo.createMarkdownFile(origcontent, this.settings.folder_archived_daily_notes, noteFile.name);
+
+        // Construct the NEW daily note from parsedcontent
+        const newrecords: object[] = [];
+        const dailyentry = {};
+        const sections = {};
+        const footlinks = [];
         try {
-            this.markdownExport(exportContent);
+
+            // Add frontmatter
+            this.addFrontMatterForEntry(parsedcontent, frontmatter);
+
+            for (const db in parsedcontent) {
+
+                // Add daily entry
+                if (db == this.defsec) {
+                    const entry = parsedcontent[db][0];
+                    for (const key in entry) {
+                        if (key == "_Title") {
+                            dailyentry.Heading = entry._Title;
+                        } else {
+                            dailyentry[key] = entry[key];
+                        }
+                    }
+                } else {
+                    const dbinfo = this.pojo.getDatabaseInfo(db)
+
+                    // Add frontmatter from database entries
+                    this.addFrontMatterForDatabase(frontmatter, db, parsedcontent[db], dbinfo);
+
+                    // Add sections for other database information 
+                    this.addMarkdownSection(sections, diarydate, db, parsedcontent[db], dbinfo);
+
+                    // Add LINKS to be added to the bottom of the diary entry
+                    //        addFootLinks(footlinks, db, diaryEntry[db], dbinfo);
+
+                    // Create new records
+                    this.createNewRecords(newrecords, diarydate, db, parsedcontent[db], dbinfo);
+                }
+            }
+
+            if (this.settings.donotcreatefiles) {
+                console.log("NOT creating actual files in Obsidian Vault due to 'donotcreatefiles' option!");
+                return "notfinished_nocreatefiles";
+            }
+
+            const md = this.createNewDailyNoteMarkdown(frontmatter, dailyentry, sections, footlinks);
+
+            // Output the new Daily Note file.
+            const mdcontent = md.join("\n");
+            await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, noteFile.name, true);
+
         } catch (err) {
             console.error("ERROR caught on markdownexport", err);
-            exitNow();
+            const eobj = {
+                "type": "error_export",
+                "msg": "Error encountered: " + err.message,
+            }
+            return eobj;
         }
-        console.log("FINISHED export of content to obsidian vault");
+        console.warn("FINISHED export of content to obsidian vault");
 
+        // Create markdown files for metadata records
+        await this.writeOutMetadataRecords(newrecords);
 
         // Copy (and convert if HEIC) with any referenced images
-        if (!this.settings.donotcopyattachments) {
+        const BSKIPFORNOW = true;
+        if (!this.settings.donotcopyattachments && !BSKIPFORNOW) {
             console.log("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
-            const attdir = path.join(this.settings.export_folder, this.settings.attachments);
+            const attdir = path.join(this.settings.export_folder, this.settings.folder_attachments);
             fs.ensureDirSync(attdir);
 
             nCount = 0;
@@ -101,11 +204,14 @@ export class PojoConvert {
                 }
             }
             console.log("FINISHED copy of images to obsidian vault");
-        } else {
-            console.log("NOTE - attachments not copied due to setting donotcopyattachments being true.")
+            //        } else {
+            //            console.log("NOTE - attachments not copied due to setting donotcopyattachments being true.")
         }
 
-        console.log("EXITING NOW!!!");
+        return {
+            "type": "success",
+            "msg": "Daily Note converted successfully."
+        }
     }
 
     async convertNow (): Promise<boolean> {
@@ -164,7 +270,7 @@ export class PojoConvert {
         // Copy (and convert if HEIC) with any referenced images
         if (!this.settings.donotcopyattachments) {
             console.log("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
-            const attdir = path.join(this.settings.export_folder, this.settings.attachments);
+            const attdir = path.join(this.settings.export_folder, this.settings.folder_attachments);
             fs.ensureDirSync(attdir);
 
             nCount = 0;
@@ -237,35 +343,6 @@ export class PojoConvert {
         return inputfiles;
     }
 
-    private async markdownImportFile (exported: object, mdfile: TFile) {
-
-        const mdcontent = await mdfile.vault.cachedRead(mdfile);
-        this.currentfile = mdfile;
-        this.currentdb = this.defsec;
-        this.currentidx = 0;
-
-        const parsedContent = this.parseMarkdown(mdcontent);
-        console.log("HERE is parsedContent", parsedContent);
-        if (!parsedContent) {
-            logDebug("notjournal", "ASSUMING NOT JOURNAL: ", mdfile);
-        } else if (!parsedContent[this.defsec] || !parsedContent[this.defsec][0].Date) {
-            logDebug("other", "Assumed this file is a note or quote - NO VALID DATE FOUND!", mdfile)
-            logDebug("other", "CONTENT ", parsedContent);
-            let note = parsedContent;
-            if (parsedContent[this.defsec]) {
-                if (parsedContent[this.defsec][0].Description) {
-                    note = parsedContent[this.defsec][0].Description
-                }
-            }
-            exported.notes.push(note);
-        } else {
-            logDebug("parsedfinal", mdfile, parsedContent);
-            const diarydate = parsedContent[this.defsec][0].Date;
-            exported.diary[diarydate] = parsedContent;
-        }
-        this.currentfile = null;
-    }
-
     private async markdownImportFiles (mdfiles: TFile[]) {
 
         const exported = {
@@ -297,12 +374,14 @@ export class PojoConvert {
             const rval = this.parseAST(child);
             if (!rval) {
                 // ERROR
-                return null;
+                console.error("parseAST error encountered. Continuing...", child);
+                continue;
             }
             logDebug("debug", rval.key, rval.values);
             if (!this.parseItem(parsed, rval.key, rval.values)) {
                 // ERROR
-                return null;
+                console.error("parseItem error encoutered. Continuing...", rval);
+                continue;
             }
         }
 
@@ -355,7 +434,7 @@ export class PojoConvert {
                                 // Need to convert to jpg.
                                 iobj.imagename = pimage.name + ".jpg";
                             }
-                            iobj.target = path.join(this.settings.export_folder, this.settings.attachments, iobj.imagename);
+                            iobj.target = path.join(this.settings.export_folder, this.settings.folder_attachments, iobj.imagename);
                         } else {
                             if (iobj && c.value && c.value !== "\n") {
                                 iobj.caption = c.value;
@@ -401,9 +480,9 @@ export class PojoConvert {
         return { key, values }
     }
 
-    private checkMultiValued (db: string, key: string): boolean {
+    private checkMultiValued (db: string, key: string, context: string): boolean {
 
-        console.log("HERE IS check multi values", db, key);
+        //        console.log("HERE IS check multi values called from " + context, db, key);
         if (db == this.defsec) {
             return false;
         }
@@ -421,10 +500,10 @@ export class PojoConvert {
     private parseLine (parsed: object, key: string, line: string): boolean {
 
         const self = this;
-        console.log("parseLine " + key, line, parsed);
+        console.log("parseLine " + key, line);
 
         const _addParsed = function (info) {
-            console.log("_addParsed", info);
+            //            console.log("_addParsed", info);
             const dbref = info._database;
             if (!parsed[dbref]) { parsed[dbref] = []; }
             if (dbref == self.defsec) {
@@ -440,10 +519,11 @@ export class PojoConvert {
             delete parsed[dbref][last].database;
             delete parsed[dbref][last].canonical;
 
+            /*
             for (const kyp in parsed[dbref][last]) {
-                console.log("parsed times " + kyp, last, parsed[dbref]);
+//                console.log("parsed times " + kyp, last, parsed[dbref]);
                 const kval = parsed[dbref][last][kyp];
-                if (self.checkMultiValued(dbref, kyp)) {
+                if (self.checkMultiValued(dbref, kyp, "parseline")) {
                     //                    console.log("Here is kval!", kval);
                     if (!Array.isArray(kval)) {
                         const aval = kval.split(",");
@@ -459,17 +539,19 @@ export class PojoConvert {
                     self.trackingInfo(parsed, dbref, nobj2);
                 }
             }
+            */
         }
+
+        if (!parsed[this.defsec]) { parsed[this.defsec] = []; }
+        if (!parsed[this.defsec][0]) { parsed[this.defsec].push({}); }
 
         if (key == "H1") {
             // Check if this is a date!
-            if (!parsed[this.defsec]) { parsed[this.defsec] = []; }
-            if (!parsed[this.defsec][0]) { parsed[this.defsec].push({}); }
             const date = new Date(line);
             console.log("CONVERT " + line + " to date:", date)
             if (!date || (date instanceof Date && isNaN(date.valueOf()))) {
                 // See if it is an ISO Date
-                parsed[this.defsec][0].ISOdave = line;
+                parsed[this.defsec][0].ISODave = line;
                 parsed[this.defsec][0].Date = this.convertISODave(line);
             } else {
                 parsed[this.defsec][0].Date = line;
@@ -483,8 +565,6 @@ export class PojoConvert {
             }
         } else if (key == "H2") {
             // Title on Daily Entry
-            if (!parsed[this.defsec]) { parsed[this.defsec] = []; }
-            if (!parsed[this.defsec][0]) { parsed[this.defsec].push({}); }
             parsed[this.defsec][0]._Title = line;
             if (!parsed[this.defsec][0].Date) {
                 parsed[this.defsec][0].Date = this.getDateFromFile();
@@ -503,8 +583,6 @@ export class PojoConvert {
                 line.imageurl = decurl;
                 logDebug("images", line.imageurl);
 
-                if (!parsed[this.defsec]) { parsed[this.defsec] = []; }
-                if (!parsed[this.defsec][0]) { parsed[this.defsec][0] = {}; }
                 if (!parsed[this.defsec][0]._images) { parsed[this.defsec][0]._images = []; }
                 parsed[this.defsec][0]._images.push(line);
             } else {
@@ -519,6 +597,7 @@ export class PojoConvert {
             parsed[this.currentdb][this.currentidx].Description.push("* " + line);
         } else if (key == "H3" || line.charAt(0) == '#') {
 
+            //            console.log("HERE IS PARSED " + this.defsec, parsed);
             if (!parsed[this.defsec][0].Date) {
                 parsed[this.defsec][0].Date = this.getDateFromFile();
             }
@@ -532,10 +611,10 @@ export class PojoConvert {
                 // ERROR
                 return false;
             }
-            console.log("HERE is pinfo from " + pline, pinfo);
+            console.log("Parsed Line Object", pinfo);
             const db = pinfo._database;
             _addParsed(pinfo);
-            console.log("HERE is parsed and db " + db, parsed);
+            //            console.log("HERE is parsed and db " + db, parsed);
             logDebug("parse1", "TAG PARSE with length " + parsed[db].length, pinfo);
             //        if (key == "H3") {
             this.currentdb = db;
@@ -658,7 +737,7 @@ export class PojoConvert {
         }
 
 
-        const _createMOC = function (fname: string, moctype: string, dbname: string, param: string, value: string) {
+        const _createMOC = async function (fname: string, moctype: string, dbname: string, param: string, value: string) {
 
             let mocname;
             if (moctype == "value") {
@@ -673,12 +752,13 @@ export class PojoConvert {
             } else {
                 mocname = fname;
             }
-            const moc = path.join(this.settings.export_folder, this.settings.moc_folder, mocname + ".md");
+            const moc = path.join(this.settings.export_folder, this.settings.folder_moc, mocname + ".md");
 
             if (bOverwrite || !fs.existsSync(moc)) {
                 // Only create if an existing file does not exist!
                 const mfm = _getMOCfrontmatter(moctype, dbname, param, value);
                 const md = mfm.join("\n") + "\n" + MOCtemplate[moctype];
+                await this.pojo.createMarkdownFile(md, this.settings.folder_moc, mocname + ".md");
                 fs.outputFileSync(moc, md);
             }
         };
@@ -726,29 +806,7 @@ export class PojoConvert {
         }
     }
 
-    private markdownExport (exportContent) {
-
-        console.log("markdownExport begin", exportContent);
-
-        const newrecords: object[] = [];
-        let nDiary = 0;
-        for (const dt in exportContent.diary) {
-            const md = this.markdownDiary(exportContent.diary[dt], newrecords);
-            const mdcontent = md.join("\n");
-            const mdfile = this.getDiaryFile(dt);
-            this.vault.create("archived daily notes/" + dt + ".md", mdcontent);
-            console.log("HERE IS the markdown content for " + mdfile, mdcontent);
-
-            //            fs.outputFileSync(mdfile, mdcontent);
-            nDiary++;
-            //        console.log(`${nDiary}: ${mdfile}`);
-        }
-
-        // Create markdown files for metadata records
-        this.writeOutMetadataRecords(newrecords);
-    }
-
-    private addFrontMatterForDatabase (frontmatter: string[], db: string, dbentry: object[], dbinfo: object) {
+    private addFrontMatterForDatabase (frontmatter: object, db: string, dbentry: object[], dbinfo: object) {
 
         const _checkKey = function (key: string): boolean {
             // Excluded params
@@ -791,7 +849,7 @@ export class PojoConvert {
                     if (_checkKey(p)) {
                         // Check if multi valued.
                         console.log("Check multi value for database " + db, p, item[p]);
-                        if (this.checkMultiValued(db, p)) {
+                        if (this.checkMultiValued(db, p, "addFrontMatterforDatabase")) {
                             const av = item[p].split(",");
                             for (const a of av) {
                                 _addValue(a);
@@ -804,7 +862,10 @@ export class PojoConvert {
             }
 
             if (vals.length > 0) {
-                frontmatter.push(db + ": [" + vals.join(",") + "]");
+                frontmatter[db] = [];
+                for (const v of vals) {
+                    frontmatter[db].push(`[[${v}]]`);
+                }
             }
         }
     }
@@ -852,104 +913,79 @@ export class PojoConvert {
         return footlinks.length - nentry;
     }
 
-    private addMarkdownSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
+    private addCalloutSections (md: string[], sections: object) {
 
-        let catchall = true;
-        for (const entry of dbentry) {
-            if (entry.Description) {
-                catchall = false;
-            }
-        }
-        if (this.settings.sections_verbose) {
-            catchall = false;
-        }
+        console.log("ZZZZ HERE ARE THE SECTIONS", sections);
 
-        /** 
-         * Create a section for all entries of a database IF one or more of those entries has a description OR always
-         * if sections_verbose is true.
-         * Otherwise, put all entries of all databases with NO descriptions into a catch-all section.
-         **/
-        let section;
-        if (catchall) {
-            // No Description field for any of these entries for this database.
-            if (!sections[defcatch]) {
-                sections[defcatch] = {
-                    database: defcatch,
-                    content: [],
-                    callout: "Info"
-                };
-            }
-            section = sections[defcatch];
-        } else {
-            if (!sections[db]) {
-                sections[db] = {
-                    database: db,
-                    content: [],
-                    callout: db.toLowerCase()
-                };
-            }
-            section = sections[db];
-        }
+        // Sections (using callouts!)
+        try {
+            for (const header in sections) {
+                const section = sections[header];
+                const callout = section.callout;
+                const database = section.database;
+                const content = section.content;
+                const dbinfo = this.pojo.getDatabaseInfo(section.database);
 
-        for (const entry of dbentry) {
-            let typeparam = "";
-            let firstparam = "";
-            if (entry[dbinfo.type]) { typeparam = ` ${entry[dbinfo.type]}`; }
-            if (entry[dbinfo.params[0]]) {
-                firstparam = `${entry[dbinfo.params[0]]}`;
-            }
+                md.push(`> [!${callout}]+ [[${database}]]`);
+                console.log("HERE IS DA contnetet for " + database, content);
+                for (const type in content) {
+                    const item = content[type];
+                    let hline;
+                    hline = `> `;
+                    hline += `**[[${type}]]**`;
 
-            const newitem = {
-                typeparam: typeparam,
-                firstparam: firstparam
-            };
-            for (const p in entry) {
-                if (p !== dbinfo.type && p !== dbinfo.params[0] && !this.settings.sections_params_exclude.includes(p)) {
-                    newitem[p] = entry[p];
+                    if (item.values) {
+                        for (const oentry of item.values) {
+                            // Make any mocparams links
+                            if (oentry.mocparams) {
+                                for (const mp of oentry.mocparams) {
+                                    hline += ` **[[${mp}]]**`;
+                                }
+                            }
+                            if (oentry.params) {
+                                for (const p of oentry.params) {
+                                    hline += `  ${p}`;
+                                }
+                            }
+                            md.push(hline);
+                            hline = `> `;
+                            if (oentry.description) {
+                                for (const line of oentry.description) {
+                                    md.push(`> ${line}`);
+                                    md.push("> ");
+                                }
+                            }
+
+                        }
+                    } else {
+                        md.push(hline);
+                    }
                 }
+                md.push("");
             }
-
-            section.content.push(newitem);
+        } catch (err) {
+            const errmsg = "ERROR output of sections";
+            console.error(errmsg, err);
+            logError(errmsg, err);
+            return false;
         }
+        return true;
     }
 
-    private createNewRecords (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {
+    private createNewDailyNoteMarkdown (frontmatter: object, dailyentry: object, sections: object, footlinks: string[]) {
 
-        const typeparam = dbinfo.type;
-
-        // Note that these records will be files in the folder defined by the this.settings parameter 'metadata_folder'
-        let nentry = 1;
-        for (const item of dbentry) {
-            const newrecord = {
-                Database: db,
-                Date: date,
-                Nentry: nentry
-            }
-            if (db !== this.defsec && !item[typeparam]) {
-                logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
-                break;
-            }
-            Object.assign(newrecord, item);
-            nentry++;
-            newrecords.push(newrecord);
-        }
-
-        return nentry;
-    }
-
-    private createMarkdownDiary (date: string, frontmatter: string[], dailyentry: object, sections: object, footlinks: string[]): string[] {
-
+        // Create the markdown for the note
         const md = [];
 
-        // Frontmatter
+        // Output the frontmatter.
         md.push("---");
-        for (const fm of frontmatter) {
-            md.push(fm);
+        for (const fkey in frontmatter) {
+            md.push(fkey + ": " + frontmatter[fkey]);
         }
         md.push("---");
         md.push(" ");
 
-        // Daily Entry
+        // Output the Daily Entry
         if (dailyentry.Heading) {
             md.push("# " + dailyentry.Heading);
             md.push("");
@@ -987,62 +1023,11 @@ export class PojoConvert {
             md.push("-----------------------------------");
         }
 
-        // Sections (using callouts!)
-        try {
-            for (const header in sections) {
-                const section = sections[header];
-                const callout = section.callout;
-                const title = section.database;
-                const content = section.content;
-                const dbinfo = this.pojo.getDatabaseInfo(section.database);
-
-                md.push(`> [!${callout}]+ [[${title}]]`);
-                for (const item of content) {
-                    if (item.typeparam) {
-                        let hline = `> `;
-                        hline += `**[[${item.typeparam}]]**`;
-                        if (item.firstparam) {
-                            if (!this.settings.links_params_exclude.includes(dbinfo.params[0])) {
-                                hline += `: **[[${item.firstparam}]]**`;
-                            } else {
-                                hline += `: **${item.firstparam}**`;
-                            }
-                        }
-                        md.push(hline);
-                    }
-                    for (const key in item) {
-                        if (key == "Description") {
-                            for (const line of item.Description) {
-                                md.push(`> ${line}`);
-                                md.push("> ");
-                            }
-                        } else if (key !== "typeparam" && key !== "firstparam") {
-                            // mulivalue
-                            if (item[key] && this.checkMultiValued(title, key)) {
-                                const aval = item[key].split(",");
-                                let newline = `> [[${key}]]:`;
-                                for (const av of aval) {
-                                    newline += ` [[${av}]]`;
-                                }
-                                md.push(newline);
-                            } else {
-                                md.push(`> [[${key}]]: [[${item[key]}]]`);
-                            }
-                        }
-                    }
-                }
-                md.push("");
-            }
-        } catch (err) {
-            const errmsg = "ERROR output of sections";
-            console.error(errmsg, err);
-            logError(errmsg, err);
-            exitNow();
-        }
-
+        // Add all the callout sections.
+        this.addCalloutSections(md, sections);
         md.push("");
 
-        // Foot Links (using Callout)
+        // Add Foot Links (using Callout)
         const fcallout = 'TIP';
         const ftitle = 'Links';
         const maxlink = 6;
@@ -1068,12 +1053,122 @@ export class PojoConvert {
         return md;
     }
 
-    private addFrontMatterForEntry (frontmatter: string[], dbentry: object[]) {
+    private addMarkdownSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
+
+        //        console.warn("addMarkdownSection", dbentry)
+
+        let catchall = true;
+        for (const entry of dbentry) {
+            if (entry.Description) {
+                catchall = false;
+            }
+        }
+        if (this.settings.sections_verbose) {
+            catchall = false;
+        }
+
+        /** 
+         * Create a section for all entries of a database IF one or more of those entries has a description OR always
+         * if sections_verbose is true.
+         * Otherwise, put all entries of all databases with NO descriptions into a catch-all section.
+         **/
+        let section;
+        if (catchall) {
+            // No Description field for any of these entries for this database.
+            if (!sections[defcatch]) {
+                sections[defcatch] = {
+                    database: defcatch,
+                    content: {},
+                    callout: "Info"
+                };
+            }
+            section = sections[defcatch];
+        } else {
+            if (!sections[db]) {
+                sections[db] = {
+                    database: db,
+                    content: {},
+                    callout: db.toLowerCase()
+                };
+            }
+            section = sections[db];
+        }
+
+        const _addValue = function (val, a) {
+            // val can be an array or a string
+            if (Array.isArray(val)) {
+                a = [...a, ...val];
+            } else {
+                a = [...a, val];
+            }
+            return a;
+        }
+
+        for (const content of dbentry) {
+            const type = content[content["_typeparam"]];
+            if (!section.content[type]) {
+                section.content[type] = {};
+            }
+            if (!section.content[type].values) {
+                section.content[type].values = [];
+            }
+            const values = section.content[type].values;
+            let newval = null;
+            for (const param of content["_params"]) {
+                if (content[param]) {
+                    if (!newval) { newval = {}; }
+                    if (param !== "Description") {
+                        const mocname = this.pojo.getFieldMOCName(dbinfo, type, param, content[param]);
+                        if (mocname) {
+                            console.log("MOC for " + type + " " + param + "-> " + mocname);
+                            if (!newval.mocparams) { newval.mocparams = []; }
+                            newval.mocparams = _addValue(mocname, newval.mocparams);
+                        } else {
+                            if (!newval.params) { newval.params = []; }
+                            newval.params = _addValue(content[param], newval.params);
+                        }
+                    } else {
+                        if (!newval) { newval = {}; }
+                        newval.description = content[param];
+                    }
+                }
+            }
+            if (newval) { values.push(newval); }
+        }
+
+        //        console.log("DA SECTION " + db, section);
+    }
+
+    private createNewRecords (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {
+
+        const typeparam = dbinfo.type;
+
+        // Note that these records will be files in the folder defined by the this.settings parameter 'folder_metadata'
+        let nentry = 1;
+        for (const item of dbentry) {
+            const newrecord = {
+                Database: db,
+                Date: date,
+                Nentry: nentry
+            }
+            if (db !== this.defsec && !item[typeparam]) {
+                logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
+                break;
+            }
+            Object.assign(newrecord, item);
+            nentry++;
+            newrecords.push(newrecord);
+        }
+
+        return nentry;
+    }
+
+    private addFrontMatterForEntry (dbentry: object[], frontmatter: object) {
 
         // Add always add to frontmatter from this.settings
         if (this.settings.frontmatter_always_add) {
-            for (const fma of this.settings.frontmatter_always_add) {
-                frontmatter.push(fma);
+            for (const fma in this.settings.frontmatter_always_add) {
+                frontmatter[fma] = this.settings.frontmatter_always_add[fma];
             }
         }
 
@@ -1086,15 +1181,15 @@ export class PojoConvert {
                 if (dbentry[sr[0]]) {
                     // NOTE we only do this for ONE entry of this database type.
                     const dbe = dbentry[sr[0]][0];
-                    console.log("DATABASE ENTRY", dbe);
+                    //                    console.log("DATABASE ENTRY", dbe);
                     const source = dbe[sr[1]];
                     const action = af[1];
                     if (action == 'Date') {
                         const newDate = new Date(source);
                         const obsidianDate = newDate.toISOString().split('T')[0];
-                        frontmatter.push([af[2]] + ": " + obsidianDate);
+                        frontmatter[af[2]] = obsidianDate;
                     } else if (action == 'String') {
-                        frontmatter.push([af[2]] + ": " + source);
+                        frontmatter[af[2]] = source;
                     } else if (action == 'DatePlus') {
                         // Going to create a whole set of Frontmatter fields based on dateplus_to_frontmatter
                         let newDate = new Date(source);
@@ -1103,9 +1198,9 @@ export class PojoConvert {
                             const ad = source.split(" ");
                             newDate = new Date(ad[0] + " 12:00");
                         }
-                        console.log("HERE IS newDate from " + source, newDate);
+                        //                        console.log("HERE IS newDate from " + source, newDate);
                         const obsidianDate = newDate.toISOString().split('T')[0];
-                        frontmatter.push([af[2]] + ": " + obsidianDate);
+                        frontmatter[af[2]] = obsidianDate;
                         if (this.settings.frontmatter_dateplus) {
                             for (const dp of this.settings.frontmatter_dateplus) {
                                 switch (dp) {
@@ -1138,17 +1233,17 @@ export class PojoConvert {
                                                 season = "Early Winter";
                                                 break;
                                         }
-                                        frontmatter.push(dp + ": " + season);
+                                        frontmatter[dp] = season;
                                         break;
                                     case 'Quarter':
                                         const q = Math.floor((newDate.getMonth() / 3) + 1);
-                                        frontmatter.push(dp + ": Q" + q);
+                                        frontmatter[dp] = "Q" + q;
                                         break;
                                     case 'Month':
                                         const ms = newDate.toLocaleDateString("en-US", {
                                             month: "short"
                                         })
-                                        frontmatter.push(dp + ": " + ms);
+                                        frontmatter[dp] = ms;
                                         break;
                                     case 'YY-MM':
                                         const yr = newDate.toLocaleDateString("en-US", {
@@ -1157,7 +1252,7 @@ export class PojoConvert {
                                         const mn = newDate.toLocaleDateString("en-US", {
                                             month: "2-digit"
                                         })
-                                        frontmatter.push(dp + ": " + yr + "-" + mn);
+                                        frontmatter[dp] = yr + "-" + mn;
                                         break;
                                     case 'YY-WK':
                                         const yr2 = newDate.toLocaleDateString("en-US", {
@@ -1167,13 +1262,13 @@ export class PojoConvert {
                                         const week = Math.ceil((((newDate.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
                                         let wk = "" + week;
                                         if (week < 10) { wk = "0" + wk; }
-                                        frontmatter.push(dp + ": " + yr2 + "-" + wk);
+                                        frontmatter[dp] = yr2 + "-" + wk;
                                         break;
                                     case 'Day of Week':
                                         const wd = newDate.toLocaleDateString("en-US", {
                                             weekday: "short"
                                         })
-                                        frontmatter.push(dp + ": " + wd);
+                                        frontmatter[dp] = wd;
                                         break;
                                     default:
                                         logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
@@ -1196,78 +1291,10 @@ export class PojoConvert {
             }
         }
         if (dbs.length > 0) {
-            frontmatter.push("Databases: [" + dbs.join(",") + "]");
+            frontmatter["Databases"] = "[" + dbs.join(", ") + "]";
         }
     }
 
-    private markdownDiary (diaryEntry: object, newrecords: object[]): string[] {
-
-        // Export Diary Entry
-        // NOTE that for database metadata, we need to do four things:
-        // 1) Determine what frontmatter metadata to add (fm - key/value pairs) type:firstparam
-        // 2) Determine what LINKS will be added to the bottom of the entry. (footlinks)
-        // 3) Determine what metadata should be added directly to the body of the entry. (sections)
-        // 4) Determine information for record associated with database. (newrecords)
-
-        const dailyentry = {};
-        const frontmatter: string[] = [];
-        const footlinks: string[] = [];
-        const sections = {};
-
-        const date = diaryEntry[this.defsec][0].Date;
-
-        // Add frontmatter
-        this.addFrontMatterForEntry(frontmatter, diaryEntry);
-
-        for (const db in diaryEntry) {
-
-            // Add daily entry
-            if (db == this.defsec) {
-                const entry = diaryEntry[db][0];
-                for (const key in entry) {
-                    if (key == "_Title") {
-                        dailyentry.Heading = entry._Title;
-                    } else {
-                        dailyentry[key] = entry[key];
-                    }
-                }
-            } else {
-                const dbinfo = this.pojo.getDatabaseInfo(db)
-
-                // Add frontmatter from database entries
-                this.addFrontMatterForDatabase(frontmatter, db, diaryEntry[db], dbinfo);
-
-                // Add sections for other database information 
-                this.addMarkdownSection(sections, date, db, diaryEntry[db], dbinfo);
-
-                // Add LINKS to be added to the bottom of the diary entry
-                //        addFootLinks(footlinks, db, diaryEntry[db], dbinfo);
-
-                // Create new records
-                this.createNewRecords(newrecords, date, db, diaryEntry[db], dbinfo);
-            }
-        }
-
-        //    console.log("EXPORTED STUFF for " + date);
-        //    console.log("frontmatter: ", frontmatter);
-        //    console.log("dailyentry: ", dailyentry);
-        //    console.log("sections: ", sections);
-        for (const s in sections) {
-            logDebug("sectionsinfo", s, sections[s]);
-        }
-        //    console.log("footlinks: ", footlinks);
-        //    console.log("newrecords: ", newrecords);
-        //    console.log("=======================================================");
-
-        if (this.settings.donotcreatefiles) {
-            console.log("NOT creating actual files in Obsidian Vault due to 'donotcreatefiles' option!");
-            return;
-        }
-
-        const md = this.createMarkdownDiary(date, frontmatter, dailyentry, sections, footlinks);
-
-        return md;
-    }
 
     private convertISODave (dddate: string): string {
 
@@ -1366,24 +1393,25 @@ export class PojoConvert {
         }
     }
 
-    private writeOutMetadataRecords (newrecords: object[]) {
+    private async writeOutMetadataRecords (newrecords: object[]) {
 
+        const self = this;
         console.log("writeOutMetadataRecords here...", newrecords);
         let rcount;
 
-        // console.log("newrecords", newrecords);
-        const metadir = path.join(this.settings.export_folder, this.settings.metadata_folder);
-        fs.ensureDirSync(metadir);
 
-        const _createNewMetadataRecord = function (record: object, typename: string, pname: string, pvalue: string): void {
+        const _createNewMetadataRecord = async function (record: object, typename: string, rparams: string[]): void {
 
             const md = [];
             md.push("---");
             md.push("Database: " + record.Database);
             md.push("Date: " + record.Date);
             md.push(`${typename}: ${record[typename]}`);
-            if (pname) {
-                md.push(`${pname}: ${pvalue}`);
+            if (rparams && rparams.length > 0) {
+                for (const pname of rparams) {
+                    const pvalue = record[pname];
+                    md.push(`${pname}: ${pvalue}`);
+                }
             }
             md.push("---");
             if (record.Description) {
@@ -1396,26 +1424,9 @@ export class PojoConvert {
             }
 
             const filename = record.Database + "-" + record.Date + "-" + record.Nentry + rcount + ".md";
-            const target = path.join(metadir, filename);
+            await self.pojo.createMarkdownFile(md.join("\n"), self.settings.folder_metadata, filename);
 
-            //      if (fs.existsSync(target)) {
-            //         logError("Metadata record already exists", target);
-            //      }
-
-            fs.outputFileSync(target, md.join("\n"));
             rcount++;
-        };
-
-        const _createNewMetadataRecords = function (record: object, typename: string, pname: string, pvalues: string): void {
-            //        console.log(typename + " -> " + pname, record);
-            if (pname && this.checkMultiValued(record.Database, pname)) {
-                const pa = pvalues.split(",");
-                for (const p of pa) {
-                    _createNewMetadataRecord(record, typename, pname, p.trim());
-                }
-            } else {
-                _createNewMetadataRecord(record, typename, pname, pvalues);
-            }
         };
 
         try {
@@ -1433,14 +1444,7 @@ export class PojoConvert {
                         }
                     }
 
-                    if (rparams.length == 0) {
-                        // NO params specified, only type, so we create one metadata record
-                        _createNewMetadataRecords(record, dbinfo.type);
-                    } else {
-                        for (const rparam of rparams) {
-                            _createNewMetadataRecords(record, dbinfo.type, rparam, record[rparam]);
-                        }
-                    }
+                    await _createNewMetadataRecord(record, dbinfo.type, rparams);
                 }
             }
         } catch (err) {
@@ -1449,10 +1453,6 @@ export class PojoConvert {
             logError(errmsg, err);
             exitNow();
         }
-    }
-
-    private getDiaryFile (dt: string): string {
-        return this.settings.export_folder + "\\" + this.settings.diary_folder + "\\" + dt + " Entry.md";
     }
 
     private getDateFromFile (): string {

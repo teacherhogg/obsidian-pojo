@@ -88,11 +88,11 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
             return true;
         });
 
-        console.log("ZULU SUGGESTS ", suggestions);
+        //        console.log("ZULU SUGGESTS ", suggestions);
 
         const bls = suggestions.length === 0 ? null : suggestions.filter(s => !SuggestionBlacklist.has(s));
 
-        console.log("BLS is ", bls);
+        //        console.log("BLS is ", bls);
 
         return bls;
     }
@@ -139,10 +139,14 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
         text.addClass("completr-suggestion-text");
         text.setText(value.displayName);
         el.appendChild(text);
+
+        //        console.log("renderSuggestion  " + value.displayName);
     }
 
     selectSuggestion (value: Suggestion, evt: MouseEvent | KeyboardEvent): void {
         const replacement = value.replacement;
+        console.log("selectSuggestion " + replacement, value);
+
         const start = typeof value !== "string" && value.overrideStart ? value.overrideStart : this.context.start;
 
         const endPos = value.overrideEnd ?? this.context.end;

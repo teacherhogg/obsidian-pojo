@@ -1,6 +1,6 @@
-import {EditorPosition, EditorSuggestContext} from "obsidian";
-import {CompletrSettings} from "../settings";
-import {maybeLowerCase} from "../editor_helpers";
+import { EditorPosition, EditorSuggestContext } from "obsidian";
+import { CompletrSettings } from "../settings";
+import { maybeLowerCase } from "../editor_helpers";
 
 export class Suggestion {
     displayName: string;
@@ -22,15 +22,15 @@ export class Suggestion {
         this.color = opts?.color;
     }
 
-    static fromString(suggestion: string, overrideStart?: EditorPosition): Suggestion {
+    static fromString (suggestion: string, overrideStart?: EditorPosition): Suggestion {
         return new Suggestion(suggestion, suggestion, overrideStart);
     }
 
-    getDisplayNameLowerCase(lowerCase: boolean): string {
+    getDisplayNameLowerCase (lowerCase: boolean): string {
         return maybeLowerCase(this.displayName, lowerCase);
     }
 
-    derive(options: Partial<typeof this>) {
+    derive (options: Partial<typeof this>) {
         const derived = new Suggestion(
             options.displayName ?? this.displayName,
             options.replacement ?? this.replacement,
@@ -48,10 +48,11 @@ export class Suggestion {
 
 export interface SuggestionContext extends EditorSuggestContext {
     separatorChar: string;
+    extraInfo: object;
 }
 
 export interface SuggestionProvider {
     blocksAllOtherProviders?: boolean,
 
-    getSuggestions(context: SuggestionContext, settings: CompletrSettings): Suggestion[],
+    getSuggestions (context: SuggestionContext, settings: CompletrSettings): Suggestion[],
 }

@@ -17,12 +17,14 @@ export class PojoHelper {
     private loadedPojoHistory: object;
     private nohistoryx: boolean;
     private defsec: string;
+    private vault: Vault;
 
     constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
         this.pojoProvider = pojoProvider;
         this.settings = pojosettings;
         this.nohistoryx = false;
         this.defsec = this.settings.daily_entry_h3[0];
+        this.vault = vault;
 
         const dbinfo = {};
         const dbkeys = [];
@@ -32,6 +34,32 @@ export class PojoHelper {
         }
         this.loadedPojoDB = dbinfo;
         this.pojoDatabases = dbkeys;
+
+    }
+
+    getPluginFolder () {
+        return this.vault.configDir + "/plugins/obsidian-pojo";
+    }
+
+    async createMarkdownFile (data: string, folder: string, filename: string, bOverwrite: boolean) {
+
+        // First check if folder exists in vault.
+        if (!(await this.vault.adapter.exists(folder))) {
+            console.log("Folder " + folder + " must be created.");
+            await this.vault.adapter.mkdir(folder);
+        }
+
+        const filepath = folder + "/" + filename;
+        if (await this.vault.adapter.exists(filepath)) {
+            console.error("FILE ALREADY EXISTS! " + filepath);
+            if (bOverwrite) {
+                await this.vault.adapter.write(filepath, data);
+                console.log("OOO -> OVERRWORTE file " + filepath);
+            }
+        } else {
+            await this.vault.create(filepath, data);
+            console.log("CCC -> Created file " + filepath);
+        }
 
     }
 
@@ -55,10 +83,10 @@ export class PojoHelper {
         }
     }
 
-    async InitHistory (vault: Vault) {
+    async InitHistory () {
         let loadedPojoHistory: object;
-        const path = intoCompletrPath(vault, POJO_HISTORY_FILE);
-        if (!(await vault.adapter.exists(path))) {
+        const path = intoCompletrPath(this.vault, POJO_HISTORY_FILE);
+        if (!(await this.vault.adapter.exists(path))) {
             logError("NO History file found to load: " + path);
             loadedPojoHistory = {
                 "version": "???",
@@ -66,7 +94,7 @@ export class PojoHelper {
             };
         } else {
             try {
-                loadedPojoHistory = await loadFromFile(vault, path);
+                loadedPojoHistory = await loadFromFile(this.vault, path);
             } catch (e) {
                 logError("ERROR loading Pojo History", e);
                 return;
@@ -83,6 +111,56 @@ export class PojoHelper {
 
     getDatabases (): string[] {
         return this.pojoDatabases;
+    }
+
+    getFieldMOCName (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
+        if (!dbinfo || !dbinfo["field-info"]) { return null; }
+
+        const allowed = dbinfo["field-info"][fieldname].allowed;
+        const multi = dbinfo["field-info"][fieldname].multi;
+
+        if (!allowed) {
+            // Treat any value: fixed, history, history-type as YES for moc
+            return null;
+        }
+
+        console.log("MOSC TIMES " + fieldname, fieldvalues);
+
+        let retarray = null;
+        if (allowed == "history" || allowed == "fixed") {
+            retarray = [];
+            if (multi) {
+                if (Array.isArray(fieldvalues)) {
+                    retarray = fieldvalues;
+                } else {
+                    const a1 = fieldvalues.split(multi);
+                    for (const v1 of a1) {
+                        retarray.push(v1);
+                    }
+                }
+            } else {
+                retarray.push(fieldvalues);
+            }
+        } else if (allowed == "history-type") {
+            retarray = [];
+            if (multi) {
+                let a2;
+                if (Array.isArray(fieldvalues)) {
+                    a2 = fieldvalues;
+                } else {
+                    a2 = fieldvalues.split(multi);
+                }
+                for (const v2 of a2) {
+                    retarray.push(type + " " + v2);
+                }
+            } else {
+                retarray.push(type + " " + fieldvalues);
+            }
+        } else {
+            console.error("UNKNOWN allowed value " + allowed, fieldname, dbinfo);
+        }
+
+        return retarray;
     }
 
     getDatabaseInfo (dbname: string): object | null {
@@ -500,6 +578,8 @@ export class PojoHelper {
             return null;
         }
         robj[dbinfo.type] = this.normalizeValue(taga[1]);
+        robj._params = dbinfo.params;
+        robj._typeparam = dbinfo.type;
 
         const finfo = dbinfo["field-info"];
         if (finfo) {
@@ -602,14 +682,14 @@ export class PojoHelper {
             }
         }
 
-        console.log("HERE IS ROBJ", robj);
+        //        console.log("HERE IS ROBJ", robj);
 
         return robj;
     }
 
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
-        console.log("getSuggestedValues", pobj);
+        //        console.log("getSuggestedValues", pobj);
 
         if (!pobj || !pobj._loc) { return null; }
 
@@ -642,9 +722,13 @@ export class PojoHelper {
                 }
             }
             values = this.filterValues(locval, svalues);
-            console.log("JUST FILTERED with " + locval, svalues);
+            console.log("JUST FILTERED with >>" + locval + "<<");
+            for (const v of values) {
+                v.origContext = locval;
+            }
             console.log("HERE is values", values);
         }
+
         return values;
     }
 
@@ -698,7 +782,7 @@ export class PojoHelper {
     }
 
     private getValues (dinfo: object, pname: string, type?: string): string[] | null {
-        console.log("getValues with " + pname + " type: " + type, dinfo);
+        //        console.log("getValues with " + pname + " type: " + type, dinfo);
         if (!dinfo["field-info"] || !dinfo["field-info"][pname]) {
             return [];
         }

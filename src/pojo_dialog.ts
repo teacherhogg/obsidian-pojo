@@ -87,8 +87,31 @@ export class PojoZap extends Modal {
                         //                        this.pojo.saveHistory(this.app.vault, newhistory);
 
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault);
-                        await convert.convertDailyNote(this.currentFile);
-                        console.log("Conversion Completed.");
+                        const retval = await convert.convertDailyNote(this.currentFile);
+                        console.log("Conversion Completed.", retval);
+
+                        const msg = retval.msg;
+
+                        if (retval.type == "noconvert_alreadyconverted") {
+                            new ConfirmationModal(
+                                this.app,
+                                "Conversion Already Done",
+                                "This note has ALREADY been converted. Do you wish to proceed anyway and overrwite any previous converted note and metadata?",
+                                button => button
+                                    .setButtonText("Proceed with Conversion ANYWAY")
+                                    .setWarning(),
+                                async () => {
+                                    console.log("WE ARE CHOOSING TO CONVERT ANYWAY.. TBD...")
+                                    //                                    self.display();
+                                }).open();
+                        } else {
+                            new InformationModal(
+                                this.app,
+                                "Conversion completed with code: " + retval.type,
+                                msg
+                            ).open();
+                        }
+
                     })
             )
 
@@ -515,6 +538,19 @@ class DatabaseList extends Modal {
     onClose () {
         const { contentEl } = this;
         contentEl.empty();
+    }
+}
+
+class InformationModal extends Modal {
+
+    constructor(app: App, title: string, body: string) {
+        super(app);
+        this.titleEl.setText(title);
+        this.contentEl.setText(body);
+        new Setting(this.modalEl)
+            .addButton(button => button
+                .setButtonText("OK")
+                .onClick(() => this.close())).settingEl.addClass("completr-settings-no-border");
     }
 }
 
