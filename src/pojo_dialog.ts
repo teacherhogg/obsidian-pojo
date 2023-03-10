@@ -124,6 +124,8 @@ export class PojoZap extends Modal {
         }
         newel.createEl("hr");
 
+        console.error("HERE IS log.errors", this.logs.errors);
+
     }
 
     onClose () {

@@ -934,7 +934,7 @@ export class PojoConvert {
                     hline = `> `;
                     hline += `**[[${type}]]**`;
 
-                    if (item.values) {
+                    if (item.values && item.values.length > 0) {
                         for (const oentry of item.values) {
                             // Make any mocparams links
                             if (oentry.mocparams) {
@@ -1136,7 +1136,7 @@ export class PojoConvert {
             if (newval) { values.push(newval); }
         }
 
-        //        console.log("DA SECTION " + db, section);
+        console.log("DA SECTION " + db, section);
     }
 
     private createNewRecords (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {

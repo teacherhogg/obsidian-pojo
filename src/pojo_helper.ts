@@ -116,18 +116,18 @@ export class PojoHelper {
     getFieldMOCName (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
         if (!dbinfo || !dbinfo["field-info"]) { return null; }
 
-        const allowed = dbinfo["field-info"][fieldname].allowed;
+        // moc is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
+        const mocref = dbinfo["field-info"][fieldname].mocref;
         const multi = dbinfo["field-info"][fieldname].multi;
 
-        if (!allowed) {
-            // Treat any value: fixed, history, history-type as YES for moc
+        if (!mocref) {
             return null;
         }
 
-        console.log("MOSC TIMES " + fieldname, fieldvalues);
+        console.log("MOSC TIMES " + fieldname + " mocref " + mocref, fieldvalues);
 
         let retarray = null;
-        if (allowed == "history" || allowed == "fixed") {
+        if (mocref == "moc") {
             retarray = [];
             if (multi) {
                 if (Array.isArray(fieldvalues)) {
@@ -141,7 +141,7 @@ export class PojoHelper {
             } else {
                 retarray.push(fieldvalues);
             }
-        } else if (allowed == "history-type") {
+        } else if (mocref == "moc-type") {
             retarray = [];
             if (multi) {
                 let a2;
@@ -157,9 +157,11 @@ export class PojoHelper {
                 retarray.push(type + " " + fieldvalues);
             }
         } else {
-            console.error("UNKNOWN allowed value " + allowed, fieldname, dbinfo);
+            console.error("UNKNOWN mocref value " + mocref, fieldname, dbinfo);
         }
 
+
+        console.log("MOSC returns", retarray);
         return retarray;
     }
 
