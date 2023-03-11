@@ -37,22 +37,38 @@ export class PojoConvert {
         this.currentdb = this.settings.daily_entry_h3[0];
     }
 
-    async convertDailyNote (noteFile: Tfile): Promise<object> {
+    async convertDailyNote (inputFile: TFile, convertAgain: boolean): Promise<object> {
 
-        console.log("Converting Daily Note ", noteFile);
+
+        // We are converting a daily note AGAIN if convertAgain is ture
+        // This means the original file has already been archived and we need to redo from that copy!
+
+        console.log("Converting Daily Note ", inputFile);
+
+        let content = null;
+        let contentFile = inputFile;
+        try {
+            // Get file contents
+            if (convertAgain) {
+                contentFile = this.vault.getAbstractFileByPath(this.settings.folder_archived_daily_notes + "/" + inputFile.name);
+            }
+
+            content = await this.vault.read(contentFile);
+        } catch (err) {
+            logError("ERROR on reading file!", err);
+            return {
+                "type": "error_reading",
+                "msg": "Error Encountered: " + err.message
+            }
+        }
 
         // Start import of Daily Note markdown file.
-        let origcontent = null;
         let frontmatter = null;
         let diarydate = null;
         let parsedcontent = null;
         try {
-
-            // Get file contents
-            origcontent = await noteFile.vault.cachedRead(noteFile);
-
             // Extract any YAML
-            const filematter = matter(origcontent);
+            const filematter = matter(content);
             frontmatter = filematter.data;
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
@@ -65,7 +81,7 @@ export class PojoConvert {
             }
 
             // Parse the markdown contents
-            this.currentfile = noteFile;
+            this.currentfile = contentFile;
             this.currentdb = this.defsec;
             this.currentidx = 0;
             parsedcontent = this.parseMarkdown(filematter.content);
@@ -88,7 +104,6 @@ export class PojoConvert {
                 diarydate = parsedcontent[this.defsec][0].Date;
             }
 
-            //            exportContent = await this.markdownImportFile(noteFile);
         } catch (err) {
             logError("ERROR on importing and parsing markdown!", err);
             return {
@@ -97,11 +112,52 @@ export class PojoConvert {
             }
         }
 
+        // Check for records with _tags and convert to associated parameters.
+        for (const db in parsedcontent) {
+            const records = parsedcontent[db];
+            console.log("FIXUP " + db, records);
+            for (const record of records) {
+                console.log("FIXUP 2 " + record._type, record);
+                if (record._tags) {
+                    for (const tag of record._tags) {
+                        console.log("FIXUP 3", tag);
+                        // Default is a number representating duration in minutes!
+                        let num = parseFloat(tag);
+                        if (isNaN(num)) {
+                            // ERROR!
+                            console.error("ERROR in _tags value " + tag);
+                        } else {
+                            // Check if might be time.
+                            const ca = tag.split(":");
+                            if (ca.length == 2) {
+                                // Assume this is TIME.
+                                record.Time = tag;
+                            } else {
+                                const units = tag.replace(/[0-9.;]/g, '');
+                                if (units) {
+                                    if (units == "p") {
+                                        record.Happiness = num;
+                                        continue;
+                                    }
+                                    if (units == "h" || units == "hr") { num *= 60; }
+                                }
+                                record.Duration = parseInt(num + '', 10);
+                            }
+                        }
+
+                        console.log("FIXUP DONE", record);
+                    }
+                }
+            }
+        }
+
         console.warn("FINISHED import of markdown file", parsedcontent);
         logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
 
-        // First Archive the original daily note
-        await this.pojo.createMarkdownFile(origcontent, this.settings.folder_archived_daily_notes, noteFile.name);
+        // Archive the original daily note
+        if (!convertAgain) {
+            await this.pojo.createMarkdownFile(content, this.settings.folder_archived_daily_notes, inputFile.name);
+        }
 
         // Construct the NEW daily note from parsedcontent
         const newrecords: object[] = [];
@@ -132,7 +188,7 @@ export class PojoConvert {
                     this.addFrontMatterForDatabase(frontmatter, db, parsedcontent[db], dbinfo);
 
                     // Add sections for other database information 
-                    this.addMarkdownSection(sections, diarydate, db, parsedcontent[db], dbinfo);
+                    this.addMarkdownCalloutSection(sections, diarydate, db, parsedcontent[db], dbinfo);
 
                     // Add LINKS to be added to the bottom of the diary entry
                     //        addFootLinks(footlinks, db, diaryEntry[db], dbinfo);
@@ -151,7 +207,7 @@ export class PojoConvert {
 
             // Output the new Daily Note file.
             const mdcontent = md.join("\n");
-            await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, noteFile.name, true);
+            await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, inputFile.name, true);
 
         } catch (err) {
             console.error("ERROR caught on markdownexport", err);
@@ -1053,9 +1109,9 @@ export class PojoConvert {
         return md;
     }
 
-    private addMarkdownSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
+    private addMarkdownCalloutSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
 
-        //        console.warn("addMarkdownSection", dbentry)
+        console.warn("addMarkdownCalloutSection " + db, dbentry)
 
         let catchall = true;
         for (const entry of dbentry) {
@@ -1101,7 +1157,8 @@ export class PojoConvert {
             } else {
                 a = [...a, val];
             }
-            return a;
+            // Remove duplicates
+            return [...new Set(a)];
         }
 
         for (const content of dbentry) {
@@ -1125,7 +1182,18 @@ export class PojoConvert {
                             newval.mocparams = _addValue(mocname, newval.mocparams);
                         } else {
                             if (!newval.params) { newval.params = []; }
-                            newval.params = _addValue(content[param], newval.params);
+                            let addval = content[param];
+                            if (param == "Duration") {
+                                if (addval > 60) {
+                                    addval = addval / 60 + " hr";
+                                } else {
+                                    addval += " min";
+                                }
+                            } else if (param == "Happiness") {
+                                addval += " ⭐";
+                            }
+
+                            newval.params = _addValue(addval, newval.params);
                         }
                     } else {
                         if (!newval) { newval = {}; }
@@ -1185,9 +1253,14 @@ export class PojoConvert {
                     const source = dbe[sr[1]];
                     const action = af[1];
                     if (action == 'Date') {
-                        const newDate = new Date(source);
-                        const obsidianDate = newDate.toISOString().split('T')[0];
-                        frontmatter[af[2]] = obsidianDate;
+                        let newDate;
+                        if (sr[1] == "Now") {
+                            newDate = new Date();
+                            frontmatter[af[2]] = newDate.toDateString() + " " + newDate.toLocaleTimeString();
+                        } else {
+                            newDate = new Date(source);
+                            frontmatter[af[2]] = newDate.toISOString().split('T')[0];
+                        }
                     } else if (action == 'String') {
                         frontmatter[af[2]] = source;
                     } else if (action == 'DatePlus') {
@@ -1424,20 +1497,23 @@ export class PojoConvert {
             }
 
             const filename = record.Database + "-" + record.Date + "-" + record.Nentry + rcount + ".md";
-            await self.pojo.createMarkdownFile(md.join("\n"), self.settings.folder_metadata, filename);
+            await self.pojo.createMarkdownFile(md.join("\n"), self.settings.folder_metadata, filename, true);
 
             rcount++;
         };
 
+        const tagparams = ["Time", "Duration"];
         try {
             for (const record of newrecords) {
                 if (record.Database !== this.defsec) {
 
                     rcount = 1;
                     const dbinfo = this.pojo.getDatabaseInfo(record.Database);
+
                     const rparams = [];
+
                     for (const p in record) {
-                        if (dbinfo.params.includes(p)) {
+                        if (dbinfo.params.includes(p) || tagparams.includes(p)) {
                             if (this.checkParamOutputMetadata(p)) {
                                 rparams.push(p);
                             }

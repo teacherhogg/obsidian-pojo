@@ -75,10 +75,12 @@ class PojoSuggestionProvider implements SuggestionProvider {
 
         // Ensure we're in a Pojo Structured data line.
         line = this.pojo.stripLeading(line)
+        console.log(`>>${line}<<`);
         const pobj: object = this.pojo.parsePojoLine(line);
         if (pobj == null) {
             return [];
         }
+        console.log("parsePojoLine Object", pobj);
 
         const hint = this.generateHint(pobj);
         console.log("getSuggestions Hint", hint);
@@ -89,8 +91,6 @@ class PojoSuggestionProvider implements SuggestionProvider {
             }
             this.lasthint = hint;
         }
-        console.log(`>>${line}<<`);
-        console.log("parsePojoLine Object", pobj);
 
         this.lastlinep = pobj;
 

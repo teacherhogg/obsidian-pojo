@@ -101,8 +101,17 @@ export class PojoZap extends Modal {
                                     .setButtonText("Proceed with Conversion ANYWAY")
                                     .setWarning(),
                                 async () => {
-                                    console.log("WE ARE CHOOSING TO CONVERT ANYWAY.. TBD...")
-                                    //                                    self.display();
+                                    console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ")
+                                    const retval = await convert.convertDailyNote(this.currentFile, true);
+                                    console.log("Second Conversion Completed.", retval);
+                                    const msg = retval.msg;
+
+                                    new InformationModal(
+                                        this.app,
+                                        "Conversion completed with code: " + retval.type,
+                                        msg
+                                    ).open();
+
                                 }).open();
                         } else {
                             new InformationModal(

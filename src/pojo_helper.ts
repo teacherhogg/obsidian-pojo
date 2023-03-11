@@ -1,7 +1,7 @@
 import { intoCompletrPath } from "./settings";
 import { Suggestion } from "./provider/provider";
 import { PojoConvert } from "./pojo_convert";
-import { Vault } from "obsidian";
+import { Vault, TFile } from "obsidian";
 import { stringify } from "querystring";
 
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
@@ -114,7 +114,7 @@ export class PojoHelper {
     }
 
     getFieldMOCName (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
-        if (!dbinfo || !dbinfo["field-info"]) { return null; }
+        if (!dbinfo || !dbinfo["field-info"] || !dbinfo["field-info"][fieldname]) { return null; }
 
         // moc is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
         const mocref = dbinfo["field-info"][fieldname].mocref;
@@ -581,6 +581,11 @@ export class PojoHelper {
         }
         robj[dbinfo.type] = this.normalizeValue(taga[1]);
         robj._params = dbinfo.params;
+
+        // Add the possible @values of Time and Duration
+        robj._params.push("Time");
+        robj._params.push("Duration");
+
         robj._typeparam = dbinfo.type;
 
         const finfo = dbinfo["field-info"];
@@ -600,6 +605,22 @@ export class PojoHelper {
 
             if (plen > 1) {
                 params.shift();
+
+                // Check to see if any additional tags are specified (using @value) at start of metadata.
+                let nshift = 0;
+                for (const pt of params) {
+                    if (pt.charAt(0) == '@') {
+                        if (!robj._tags) { robj._tags = []; }
+                        robj._tags.push(pt.slice(1));
+                        nshift++;
+                    } else {
+                        break;
+                    }
+                }
+                if (nshift) {
+                    for (let nn = 0; nn < nshift; nn++) { params.shift(); }
+                }
+
                 const roline = params.join(" ");
                 const aparams = this.splitParams(roline);
                 //                console.log("aparams", aparams);
@@ -905,9 +926,9 @@ export function logDebug (category: string, msg: string, dobj?: object) {
 
 
 export function logError (msg: string, dobj?: object) {
+    console.error(msg, dobj);
     logs.errors.push(msg);
     if (dobj) {
         logs.errors.push("   " + JSON.stringify(dobj, null, 3));
     }
-    console.error(msg, dobj);
 }
