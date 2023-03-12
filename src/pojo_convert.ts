@@ -112,45 +112,6 @@ export class PojoConvert {
             }
         }
 
-        // Check for records with _tags and convert to associated parameters.
-        for (const db in parsedcontent) {
-            const records = parsedcontent[db];
-            console.log("FIXUP " + db, records);
-            for (const record of records) {
-                console.log("FIXUP 2 " + record._type, record);
-                if (record._tags) {
-                    for (const tag of record._tags) {
-                        console.log("FIXUP 3", tag);
-                        // Default is a number representating duration in minutes!
-                        let num = parseFloat(tag);
-                        if (isNaN(num)) {
-                            // ERROR!
-                            console.error("ERROR in _tags value " + tag);
-                        } else {
-                            // Check if might be time.
-                            const ca = tag.split(":");
-                            if (ca.length == 2) {
-                                // Assume this is TIME.
-                                record.Time = tag;
-                            } else {
-                                const units = tag.replace(/[0-9.;]/g, '');
-                                if (units) {
-                                    if (units == "p") {
-                                        record.Happiness = num;
-                                        continue;
-                                    }
-                                    if (units == "h" || units == "hr") { num *= 60; }
-                                }
-                                record.Duration = parseInt(num + '', 10);
-                            }
-                        }
-
-                        console.log("FIXUP DONE", record);
-                    }
-                }
-            }
-        }
-
         console.warn("FINISHED import of markdown file", parsedcontent);
         logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
 
@@ -559,6 +520,10 @@ export class PojoConvert {
         console.log("parseLine " + key, line);
 
         const _addParsed = function (info) {
+
+            // Check parsed info for any tags and process according to the metameta settings!
+            self.pojo.extractMetaMeta(info);
+
             //            console.log("_addParsed", info);
             const dbref = info._database;
             if (!parsed[dbref]) { parsed[dbref] = []; }
@@ -1172,27 +1137,20 @@ export class PojoConvert {
             const values = section.content[type].values;
             let newval = null;
             for (const param of content["_params"]) {
-                if (content[param]) {
+                const paramval = content[param];
+                console.log("addMarkdownCallout with " + param, paramval);
+                if (paramval) {
                     if (!newval) { newval = {}; }
                     if (param !== "Description") {
-                        const mocname = this.pojo.getFieldMOCName(dbinfo, type, param, content[param]);
+                        const mocname = this.pojo.getFieldMOCName(dbinfo, type, param, paramval);
                         if (mocname) {
                             console.log("MOC for " + type + " " + param + "-> " + mocname);
                             if (!newval.mocparams) { newval.mocparams = []; }
                             newval.mocparams = _addValue(mocname, newval.mocparams);
                         } else {
                             if (!newval.params) { newval.params = []; }
-                            let addval = content[param];
-                            if (param == "Duration") {
-                                if (addval > 60) {
-                                    addval = addval / 60 + " hr";
-                                } else {
-                                    addval += " min";
-                                }
-                            } else if (param == "Happiness") {
-                                addval += " ⭐";
-                            }
 
+                            const addval = this.pojo.displayMetaMeta(param, paramval);
                             newval.params = _addValue(addval, newval.params);
                         }
                     } else {

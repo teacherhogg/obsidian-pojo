@@ -18,6 +18,8 @@ export class PojoHelper {
     private nohistoryx: boolean;
     private defsec: string;
     private vault: Vault;
+    private metaunits: object;
+    private metatimes: object;
 
     constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
         this.pojoProvider = pojoProvider;
@@ -35,6 +37,26 @@ export class PojoHelper {
         this.loadedPojoDB = dbinfo;
         this.pojoDatabases = dbkeys;
 
+        this.metaunits = {};
+        this.metatimes = {};
+        if (this.settings.metameta) {
+            for (const field in this.settings.metameta) {
+                const ifield = this.settings.metameta[field];
+                ifield.name = field;
+                if (ifield.units) {
+                    for (const unit of ifield.units) {
+                        if (unit) {
+                            this.metaunits[unit] = ifield;
+                        } else {
+                            this.metaunits["_default-" + ifield.type] = ifield;
+                        }
+                    }
+                } else {
+                    this.metaunits["_default"] = ifield;
+                }
+                this.metatimes[ifield.type] = ifield;
+            }
+        }
     }
 
     getPluginFolder () {
@@ -111,6 +133,135 @@ export class PojoHelper {
 
     getDatabases (): string[] {
         return this.pojoDatabases;
+    }
+
+    displayMetaMeta (pname, pvalue) {
+
+        console.log("displayMetaMeta:" + pname + ":" + pvalue + ":", this.settings.metameta);
+
+        if (!this.settings.metameta || !this.settings.metameta[pname]) {
+            return pvalue;
+        }
+
+        const fieldi = this.settings.metameta[pname];
+
+        if (fieldi.type == "duration") {
+            if (pvalue > 60) {
+                pvalue = pvalue / 60 + " hr";
+            } else {
+                pvalue += " min";
+            }
+        } else {
+            pvalue += fieldi.display
+        }
+
+        return " (" + pvalue + ")";
+    }
+
+    calcPeriod (starttime, endtime, duration) {
+
+        const _convertTime = function (timeval) {
+            const a = timeval.split(":");
+            const hr = parseInt(a[0], 10);
+            const min = parseInt(a[1], 10);
+            return hr * 60 + min;
+        }
+
+        const _convertMin = function (durationval) {
+            const hr = parseInt(durationval / 60, 10);
+            const min = durationval % 60;
+            if (min < 10) {
+                return hr + ":0" + min;
+            } else {
+                return hr + ":" + min;
+            }
+        }
+
+        if (starttime == "_CALC_") {
+            const start = _convertTime(endtime) - duration;
+            return _convertMin(start);
+        } else if (endtime == "_CALC_") {
+            const end = _convertTime(starttime) + duration;
+            return _convertMin(end);
+        } else if (duration == "_CALC_") {
+            const start = _convertTime(starttime);
+            const end = _convertTime(endtime);
+            return end - start;
+        }
+    }
+
+    extractMetaMeta (record: object): boolean {
+
+        if (!this.settings.metameta || !record._tags) {
+            return false;
+        }
+
+        console.log("extrctMetaMeta metaunits", this.metaunits);
+        console.log("HERE is record to add meta", record);
+
+        for (const tag of record._tags) {
+            let num = parseFloat(tag);
+            const unit = tag.replace(/[0-9.:;]/g, '');
+            const ca = tag.split(":");
+            let type = "duration";
+            let fieldi;
+            if (ca.length == 2) { type = "start-time"; }
+            if (!unit) {
+                fieldi = this.metaunits["_default-" + type];
+                if (!fieldi) {
+                    fieldi = this.metaunits["_default"];
+                }
+            } else {
+                fieldi = this.metaunits[unit];
+            }
+
+            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
+            type = fieldi.type;
+
+            if (isNaN(num)) {
+                // ERROR!
+                console.error("ERROR in _tags value " + tag);
+            } else {
+                if (fieldi.type == "duration") {
+                    if (unit == "h" || unit == "hr") {
+                        num *= 60;
+                        num = parseInt(num + '', 10);
+                    }
+                } else if (fieldi.type.search("time") != -1) {
+                    num = tag.replace(/[a-zA-Z.;]/g, '');
+                }
+                record[fieldi.name] = num;
+            }
+        }
+
+        // Add time related info if it can be calculated.
+        const starttimekey = this.metatimes["start-time"] ? this.metatimes["start-time"].name : "_NOTSET_";
+        const endtimekey = this.metatimes["end-time"] ? this.metatimes["end-time"].name : "_NOTSET_";
+        const durationkey = this.metatimes["duration"] ? this.metatimes["duration"].name : "_NOTSET_";
+        if (record[starttimekey]) {
+            if (record[endtimekey]) {
+                // Calculate duration based on start and ends.
+                if (durationkey !== "_NOTSET_") {
+                    record[durationkey] = this.calcPeriod(record[starttimekey], record[endtimekey], "_CALC_");
+                }
+            } else if (record[durationkey]) {
+                // Calculate endtime based on duration
+                if (durationkey !== "_NOTSET_") {
+                    record[endtimekey] = this.calcPeriod(record[starttimekey], "_CALC_", record[durationkey]);
+                }
+            }
+        } else if (record[endtimekey]) {
+            if (record[durationkey]) {
+                // Calculate endtime based on duration
+                if (durationkey !== "_NOTSET_") {
+                    record[endtimekey] = this.calcPeriod("_CALC_", record[endtimekey], record[durationkey]);
+                }
+            }
+        }
+
+        console.log("ADDED meta", record);
+
+        return true;
     }
 
     getFieldMOCName (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
@@ -464,7 +615,10 @@ export class PojoHelper {
                 if (bHistory && tobj[key]) {
                     const _addItem = function (ival) {
                         if (!ival) { return; }
-                        console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                        console.log("ZZ dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                        if (!self.loadedPojoHistory.databases[dbname][hkey]) {
+                            self.loadedPojoHistory.databases[dbname][hkey] = [];
+                        }
                         if (!self.loadedPojoHistory.databases[dbname][hkey].includes(ival)) {
                             bChanged = true;
                             changes.push({ "database": dbname, "key": hkey, "value": ival });
@@ -562,12 +716,39 @@ export class PojoHelper {
             }
         }
 
-        const params = tagline.split(" ");
-        const plen = params.length;
-        const taga = params[0].split("/");
-
         const robj = {};
 
+        // First strip out all @tags 
+        let bLastParamTag = false;
+        let params = tagline.split(" ");
+        let plen = params.length;
+        let tags = null;
+        console.log("STARTING PARAMS " + plen, params);
+
+        if (plen > 0) {
+            params = params.filter(function (val) {
+                if (val && val.charAt(0) == "@") {
+                    if (!tags) { tags = []; }
+                    tags.push(val.slice(1));
+                    bLastParamTag = true;
+                    return false;
+                } else {
+                    bLastParamTag = false;
+                    return true;
+                }
+            });
+        }
+
+        plen = params.length;
+        console.log("FILTERED PARAMS " + plen, params);
+
+        if (tags) {
+            robj._tags = tags;
+            console.log("Stripped out tags! ", tags);
+            console.log("Last param is tag: " + bLastParamTag + " trailing space: " + bTrailingSpace);
+        }
+
+        const taga = params[0].split("/");
         robj._database = this.normalizeValue(taga[0]);
         robj._type = "";
         if (taga.length > 1) {
@@ -580,12 +761,15 @@ export class PojoHelper {
             return null;
         }
         robj[dbinfo.type] = this.normalizeValue(taga[1]);
-        robj._params = dbinfo.params;
+        robj._params = [...dbinfo.params];
 
-        // Add the possible @values of Time and Duration
-        robj._params.push("Time");
-        robj._params.push("Duration");
-
+        // Add the possible @tags types
+        if (this.settings.metameta) {
+            for (const mtag in this.settings.metameta) {
+                //                const tagi = this.metameta[mtag];
+                robj._params.push(mtag);
+            }
+        }
         robj._typeparam = dbinfo.type;
 
         const finfo = dbinfo["field-info"];
@@ -606,24 +790,9 @@ export class PojoHelper {
             if (plen > 1) {
                 params.shift();
 
-                // Check to see if any additional tags are specified (using @value) at start of metadata.
-                let nshift = 0;
-                for (const pt of params) {
-                    if (pt.charAt(0) == '@') {
-                        if (!robj._tags) { robj._tags = []; }
-                        robj._tags.push(pt.slice(1));
-                        nshift++;
-                    } else {
-                        break;
-                    }
-                }
-                if (nshift) {
-                    for (let nn = 0; nn < nshift; nn++) { params.shift(); }
-                }
-
                 const roline = params.join(" ");
+                console.log("roline is " + roline);
                 const aparams = this.splitParams(roline);
-                //                console.log("aparams", aparams);
 
                 if (aparams) {
                     if (aparams.length > dbinfo.params.length) {
@@ -705,6 +874,10 @@ export class PojoHelper {
             }
         }
 
+        if (bLastParamTag && !bTrailingSpace) {
+            // In a tag at the moment.
+            robj._loc = "tag";
+        }
         //        console.log("HERE IS ROBJ", robj);
 
         return robj;
@@ -712,7 +885,7 @@ export class PojoHelper {
 
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
-        //        console.log("getSuggestedValues", pobj);
+        console.log("getSuggestedValues POJO Object", pobj);
 
         if (!pobj || !pobj._loc) { return null; }
 
@@ -749,7 +922,7 @@ export class PojoHelper {
             for (const v of values) {
                 v.origContext = locval;
             }
-            console.log("HERE is values", values);
+            console.log("HERE is suggested values", values);
         }
 
         return values;

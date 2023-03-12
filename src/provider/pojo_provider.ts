@@ -48,22 +48,24 @@ class PojoSuggestionProvider implements SuggestionProvider {
             console.log("Previous Line Object", pobjprev);
 
             const self = this;
-            const changes = this.pojo.getHistoryChanges(pobjprev);
-            if (changes) {
+            if (pobjprev) {
+                const changes = this.pojo.getHistoryChanges(pobjprev);
+                if (changes) {
 
-                console.log("GOTS SOME CHNAGES!!", changes);
+                    console.log("GOTS SOME CHNAGES!!", changes);
 
-                const saveHistoryChanges = async function (historyC) {
-                    console.log("HERE WE NEED TO DO THE SAVE DEED!", historyC);
-                    return await self.pojo.saveHistoryChanges(self.vault, historyC);
+                    const saveHistoryChanges = async function (historyC) {
+                        console.log("HERE WE NEED TO DO THE SAVE DEED!", historyC);
+                        return await self.pojo.saveHistoryChanges(self.vault, historyC);
+                    }
+
+                    new PojoConfirm(app, changes, saveHistoryChanges).open();
+
+                    console.log("DIS IS THE POJO CONFIRM DONE...");
+
+                    // Write out history file with new change
+                    //                this.pojo.saveHistory(this.vault);
                 }
-
-                new PojoConfirm(app, changes, saveHistoryChanges).open();
-
-                console.log("DIS IS THE POJO CONFIRM DONE...");
-
-                // Write out history file with new change
-                //                this.pojo.saveHistory(this.vault);
             }
         }
         this.lastlinep = null;
@@ -83,7 +85,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         console.log("parsePojoLine Object", pobj);
 
         const hint = this.generateHint(pobj);
-        console.log("getSuggestions Hint", hint);
+        //        console.log("getSuggestions Hint", hint);
         this.hint = hint;
         if (hint && hint != this.lasthint) {
             if (Platform.isDesktop) {
@@ -210,8 +212,6 @@ class PojoSuggestionProvider implements SuggestionProvider {
     private generateHint (robj: object): string | null {
         if (!robj || !robj._database) { return null; }
         const dinfo = this.pojo.getDatabaseInfo(robj._database);
-        //        console.log("DINFO", dinfo);
-        //        console.log("robj", robj);
         let hint = `${dinfo.database}/`;
         if (robj[dinfo.type]) {
             hint += robj[dinfo.type];
@@ -220,6 +220,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
         const ptext = dinfo.params.join("; ");
         hint += " " + ptext;
+
         return hint;
     }
 }
