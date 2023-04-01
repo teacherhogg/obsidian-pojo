@@ -17,10 +17,48 @@ export default class CompletrSettingsTab extends PluginSettingTab {
         this.plugin = plugin;
     }
 
-    display (): any {
+    async display (): any {
         const { containerEl } = this;
 
+        console.log("HELLO from settings tab ", this.plugin);
+
         containerEl.empty();
+
+        let platforminfo;
+        try {
+            platforminfo = await Pojo.getPlatformInfoProvider(this.plugin.app.vault);
+        } catch (err) {
+            console.error("ERROR getting platform info:", err);
+            platforminfo = err.message;
+        }
+
+        new Setting(containerEl)
+            .setName("Device Info")
+            .setDesc(platforminfo);
+
+        let plugininfo;
+        try {
+            plugininfo = this.plugin.manifest.version;
+        } catch (err) {
+            console.error("ERROR getting plugin info:", err);
+            plugininfo = err.message;
+        }
+
+        new Setting(containerEl)
+            .setName("POJO Version")
+            .setDesc(plugininfo);
+
+        let historyinfo;
+        try {
+            historyinfo = await Pojo.getHistoryVersionProvider(this.plugin.app.vault);
+        } catch (err) {
+            console.error("ERROR getting history info:", err);
+            historyinfo = err.message;
+        }
+
+        new Setting(containerEl)
+            .setName("History Version")
+            .setDesc(historyinfo);
 
         new Setting(containerEl)
             .setName("Word character regex")
@@ -256,7 +294,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                 return;
 
             await this.reloadWords();
-            this.display();
+            await this.display();
         }
 
         new Setting(containerEl)
@@ -268,7 +306,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                 .onClick(async () => {
                     await this.reloadWords();
                     //Refresh because loadFromFiles might have removed an invalid file
-                    this.display();
+                    await this.display();
                 }))
             .addButton(button => {
                 button.buttonEl.appendChild(fileInput);
@@ -297,7 +335,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                                 async () => {
                                     await WordList.deleteWordList(this.app.vault, name);
                                     await this.reloadWords();
-                                    this.display();
+                                    await this.display();
                                 }).open();
                         })
                     ).settingEl.addClass("completr-settings-list-item");
@@ -325,7 +363,7 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                             .setButtonText("Scan")
                             .setCta(),
                         async () => {
-                            await Pojo.scanFiles(this.plugin.settings, this.plugin.app.vault.getMarkdownFiles());
+                            await Pojo.scanFiles(this.plugin.settings, this.plugin.app.vault.getMarkdownFiles(), this.plugin.app.vault);
                         },
                     ).open();
                 }))
@@ -340,17 +378,12 @@ export default class CompletrSettingsTab extends PluginSettingTab {
                             .setButtonText("Delete")
                             .setWarning(),
                         async () => {
-                            await Pojo.deleteHistory(this.plugin.app.vault);
+                            await Pojo.deleteHistoryProvider(this.plugin.app.vault);
                         },
                     ).open();
                 }));
 
         this.createEnabledSetting("pojoProviderEnabled", "Whether or not the Power Obsidian Journaling provider is enabled", containerEl);
-
-        new Setting(containerEl)
-            .setName("History File")
-            .setDesc("The current history version is: " + Pojo.getHistoryVersion())
-
     }
 
     private async reloadWords () {

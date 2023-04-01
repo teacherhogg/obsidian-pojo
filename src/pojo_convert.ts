@@ -1,6 +1,5 @@
 import { Vault, TFile } from "obsidian";
 import { intoCompletrPath } from "./settings";
-import { logError, logDebug } from "./pojo_helper"
 import { parse } from "@textlint/markdown-to-ast";
 import { path } from "path";
 import matter from 'gray-matter';
@@ -55,7 +54,7 @@ export class PojoConvert {
 
             content = await this.vault.read(contentFile);
         } catch (err) {
-            logError("ERROR on reading file!", err);
+            this.logError("ERROR on reading file!", err);
             return {
                 "type": "error_reading",
                 "msg": "Error Encountered: " + err.message
@@ -105,7 +104,7 @@ export class PojoConvert {
             }
 
         } catch (err) {
-            logError("ERROR on importing and parsing markdown!", err);
+            this.logError("ERROR on importing and parsing markdown!", err);
             return {
                 "type": "error_parsing",
                 "msg": "Error Encountered: " + err.message
@@ -113,7 +112,7 @@ export class PojoConvert {
         }
 
         console.warn("FINISHED import of markdown file", parsedcontent);
-        logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
+        this.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
 
         // Archive the original daily note
         if (!convertAgain) {
@@ -197,9 +196,10 @@ export class PojoConvert {
                     nCount++;
                     process.stdout.write(nCount + ",");
                 } catch (err) {
-                    console.error("SOURCE " + img.source);
-                    console.error("ERROR during copy of image", err);
-                    exitNow();
+                    const errs = [];
+                    errs.push("SOURCE " + img.source);
+                    errs.push("ERROR during copy of image " + err.message);
+                    this.exitNow(errs);
                 }
             }
             console.log("----------------------------->");
@@ -215,9 +215,10 @@ export class PojoConvert {
                     nCount++;
                     process.stdout.write(nCount + ",");
                 } catch (err) {
-                    console.error("SOURCE " + imgc.source);
-                    console.error("ERROR during convert of image", err);
-                    exitNow();
+                    const errs = [];
+                    errs.push("SOURCE " + imgc.source);
+                    errs.push("ERROR during convert of image " + err.message);
+                    this.exitNow(errs);
                 }
             }
             console.log("FINISHED copy of images to obsidian vault");
@@ -239,11 +240,11 @@ export class PojoConvert {
 
         // Get the list of markdown files in the import directory and start processing.
         if (!this.settings.import_folder) {
-            logError("MISSING import folder in this.settings file.")
+            this.logError("MISSING import folder in this.settings file.")
             return false;
         }
         const importFiles = this.getInputFiles(this.settings.import_folder);
-        logDebug("debug", "Number of files to import: " + importFiles.length);
+        this.logDebug("debug", "Number of files to import: " + importFiles.length);
 
         // Start import of list of markdown files
         console.log("BEGIN import of " + importFiles.length + " markdown files");
@@ -251,7 +252,7 @@ export class PojoConvert {
         try {
             exportContent = this.markdownImportFiles(importFiles);
         } catch (err) {
-            logError("ERROR on markdownImport!", err);
+            this.logError("ERROR on markdownImport!", err);
         }
         console.log("FINISHED import of " + importFiles.length + " markdown files");
 
@@ -263,15 +264,14 @@ export class PojoConvert {
             console.error(errmsg, err);
         }
 
-        logDebug("exported", "FOUND FOR EXPORT", exportContent);
+        this.logDebug("exported", "FOUND FOR EXPORT", exportContent);
 
         const nrecords = Object.keys(exportContent.diary).length;
         console.log("BEGIN export of " + nrecords + " content entries to obsidian vault");
         try {
             this.markdownExport(exportContent);
         } catch (err) {
-            console.error("ERROR caught on markdownexport", err);
-            exitNow();
+            this.exitNow(["ERROR caught on markdownexport " + err.message]);
         }
         console.log("FINISHED export of content to obsidian vault");
 
@@ -297,9 +297,10 @@ export class PojoConvert {
                     nCount++;
                     process.stdout.write(nCount + ",");
                 } catch (err) {
-                    console.error("SOURCE " + img.source);
-                    console.error("ERROR during copy of image", err);
-                    exitNow();
+                    const errs = [];
+                    errs.push("SOURCE " + img.source);
+                    errs.push("ERROR during copy of image " + err.message);
+                    this.exitNow(errs);
                 }
             }
             console.log("----------------------------->");
@@ -315,9 +316,10 @@ export class PojoConvert {
                     nCount++;
                     process.stdout.write(nCount + ",");
                 } catch (err) {
-                    console.error("SOURCE " + imgc.source);
-                    console.error("ERROR during convert of image", err);
-                    exitNow();
+                    const errs = [];
+                    errs.push("SOURCE " + imgc.source);
+                    errs.push("ERROR during convert of image " + err.message);
+                    this.exitNow(errs);
                 }
             }
             console.log("FINISHED copy of images to obsidian vault");
@@ -327,7 +329,7 @@ export class PojoConvert {
 
         console.log("EXITING NOW!!!");
 
-        exitNow(true);
+        this.exitNow([], true);
     }
 
     async readTrackingFile () {
@@ -345,7 +347,19 @@ export class PojoConvert {
                 return;
             }
         }
-        this.logs.tracking = tracking;
+        //        this.logs.tracking = tracking;
+    }
+
+    private exitNow (erra: string[], bend?: boolean) {
+        this.pojo.pojoLogs("errors", erra, null, bend);
+    }
+
+    private logError (msg: string, obj?: object) {
+        this.pojo.pojoLogs("errors", [msg], obj, false);
+    }
+
+    private logDebug (msg: string, obj?: object) {
+        this.pojo.pojoLogs("debug", [msg], obj, false);
     }
 
     private getInputFiles (folder): TFile[] {
@@ -376,17 +390,17 @@ export class PojoConvert {
     private parseMarkdown (mdcontent) {
         const ast = parse(mdcontent);
 
-        logDebug("astTree", "AST Tree", ast);
+        this.logDebug("astTree", "AST Tree", ast);
 
         // Parse tree. First element is the document!
         if (!ast || ast.type !== "Document") {
-            logError("ERROR getting ast tree", ast);
+            this.logError("ERROR getting ast tree", ast);
             return;
         }
 
         const parsed = {};
 
-        logDebug("debug", ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+        this.logDebug("debug", ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
         for (const child of ast.children) {
             const rval = this.parseAST(child);
             if (!rval) {
@@ -394,7 +408,7 @@ export class PojoConvert {
                 console.error("parseAST error encountered. Continuing...", child);
                 continue;
             }
-            logDebug("debug", rval.key, rval.values);
+            this.logDebug("debug", rval.key, rval.values);
             if (!this.parseItem(parsed, rval.key, rval.values)) {
                 // ERROR
                 console.error("parseItem error encoutered. Continuing...", rval);
@@ -417,7 +431,7 @@ export class PojoConvert {
                     const v = el.children[0].value;
                     values = v.split("\n");
                 } else {
-                    logError("Unexpected Header type", el);
+                    this.logError("Unexpected Header type", el);
                     return null;
                 }
                 break;
@@ -480,17 +494,17 @@ export class PojoConvert {
                             const va = v.split("\n");
                             values = [...values, ...va];
                         } else {
-                            logError("Unexpected List Child type", c);
+                            this.logError("Unexpected List Child type", c);
                             return null;
                         }
                     }
                 } else {
-                    logError("Unexpected List type", el);
+                    this.logError("Unexpected List type", el);
                     return null;
                 }
                 break;
             default:
-                logError("Unrecognized ast element type " + el.type, el);
+                this.logError("Unrecognized ast element type " + el.type, el);
                 return null;
         }
 
@@ -597,17 +611,15 @@ export class PojoConvert {
                 try {
                     decurl = decodeURI(line.imageurl);
                 } catch (err) {
-                    console.error("ERROR decoding image uri ", err);
-                    logError("ERROR decoding image url ", err);
-                    exitNow();
+                    this.exitNow(["ERROR decoding image uri " + err.message]);
                 }
                 line.imageurl = decurl;
-                logDebug("images", line.imageurl);
+                this.logDebug("images", line.imageurl);
 
                 if (!parsed[this.defsec][0]._images) { parsed[this.defsec][0]._images = []; }
                 parsed[this.defsec][0]._images.push(line);
             } else {
-                logError("Unexpected Image type", line);
+                this.logError("Unexpected Image type", line);
                 return false;
             }
         } else if (key == "UL") {
@@ -636,7 +648,7 @@ export class PojoConvert {
             const db = pinfo._database;
             _addParsed(pinfo);
             //            console.log("HERE is parsed and db " + db, parsed);
-            logDebug("parse1", "TAG PARSE with length " + parsed[db].length, pinfo);
+            this.logDebug("parse1", "TAG PARSE with length " + parsed[db].length, pinfo);
             //        if (key == "H3") {
             this.currentdb = db;
             if (db == this.defsec) {
@@ -655,13 +667,13 @@ export class PojoConvert {
             //        }
         } else {
             // Text 
-            logDebug("parse1", "HERE is line for key " + key, line);
+            this.logDebug("parse1", "HERE is line for key " + key, line);
             if (!parsed[this.currentdb]) { parsed[this.currentdb] = []; }
             if (!parsed[this.currentdb][this.currentidx]) { parsed[this.currentdb][this.currentidx] = {}; }
 
             const ainfo = this.pojo.parseForAnnotations(line);
             if (ainfo) {
-                logDebug("parse1", "MUST add this annotation ", ainfo);
+                this.logDebug("parse1", "MUST add this annotation ", ainfo);
                 this.trackingInfo(parsed, this.currentdb, ainfo);
 
                 for (const k in ainfo) {
@@ -703,10 +715,7 @@ export class PojoConvert {
             try {
                 mdcontent = fs.readFileSync(moctemplate, 'utf8');
             } catch (err) {
-                const errmsg = "ERROR getting MOC template file for " + moctype;
-                console.error(errmsg);
-                logError(errmsg, err);
-                exitNow();
+                this.exitNow(["ERROR getting MOC template file for " + moctype, err.message]);
             }
             return mdcontent;
         }
@@ -747,10 +756,7 @@ export class PojoConvert {
                 fm.push(`filterkey: ${param}`);
                 fm.push(`filtervalue: ${value}`);
             } else {
-                const emsg = "Unknown MOC Type " + moctype;
-                logError(emsg);
-                console.error(emsg);
-                exitNow();
+                this.exitNow(["Unknown MOC Type " + moctype]);
             }
 
             fm.push("---");
@@ -985,9 +991,7 @@ export class PojoConvert {
                 md.push("");
             }
         } catch (err) {
-            const errmsg = "ERROR output of sections";
-            console.error(errmsg, err);
-            logError(errmsg, err);
+            this.logError("ERROR output of sections ", err);
             return false;
         }
         return true;
@@ -1178,7 +1182,7 @@ export class PojoConvert {
                 Nentry: nentry
             }
             if (db !== this.defsec && !item[typeparam]) {
-                logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
+                this.logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
                 break;
             }
             Object.assign(newrecord, item);
@@ -1302,12 +1306,12 @@ export class PojoConvert {
                                         frontmatter[dp] = wd;
                                         break;
                                     default:
-                                        logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
+                                        this.logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
                                 }
                             }
                         }
                     } else {
-                        logError("Unsupported add_to_frontmatter action: " + action, fma);
+                        this.logError("Unsupported add_to_frontmatter action: " + action, fma);
                         process.exit(-1);
                     }
                 }
@@ -1354,13 +1358,13 @@ export class PojoConvert {
                 case "d": month = "12"; break;
                 default:
                     console.error("ERROR on month!!! ISODave1 " + mn + " ->" + ddate);
-                    logError("ERROR on H1 as date " + mn, dddate);
+                    this.logError("ERROR on H1 as date " + mn, dddate);
                     return null;
             }
             const rem = ddate.substring(1, len - 3);
             const dom = parseInt(rem);
             if (isNaN(dom) || isNaN(yr)) {
-                logError("ERROR getting date from " + dddate, dddate);
+                this.logError("ERROR getting date from " + dddate, dddate);
                 return null;
             }
 
@@ -1394,13 +1398,13 @@ export class PojoConvert {
                 case "de": month = "12"; break;
                 default:
                     console.error("ERROR on month!!! ISODave2 " + mn + " ->" + ddate);
-                    logError("ERROR on H1 as date " + mn, dddate);
+                    this.logError("ERROR on H1 as date " + mn, dddate);
                     return null;
             }
             const rem = ddate.slice(4);
             const dom = parseInt(rem);
             if (isNaN(dom) || isNaN(yr)) {
-                logError("ERROR getting date from " + dddate, dddate);
+                this.logError("ERROR getting date from " + dddate, dddate);
                 return null;
             }
 
@@ -1482,10 +1486,7 @@ export class PojoConvert {
                 }
             }
         } catch (err) {
-            const errmsg = "ERROR writing out record";
-            console.error(errmsg, err);
-            logError(errmsg, err);
-            exitNow();
+            this.exitNow(["ERROR writing out record " + err.message]);
         }
     }
 
@@ -1587,8 +1588,8 @@ export class PojoConvert {
             if (typeof robj[p] === 'string') {
                 const wc = robj[p].split(" ").length;
                 if (wc > this.settings.tracking_max_word_count) {
-                    logError("ERROR with tracked content. Too many words to be included! Perhaps a mistake in the entry for " + p, robj[p]);
-                    logError("ABOVE was while parsing the file " + currentfile);
+                    this.logError("ERROR with tracked content. Too many words to be included! Perhaps a mistake in the entry for " + p, robj[p]);
+                    this.logError("ABOVE was while parsing the file " + currentfile);
                     bSkipError = true;
                 }
             }
@@ -1607,7 +1608,7 @@ export class PojoConvert {
                     // This is an item that HAS been encountered previously on THIS import and NOT on a previous import.
                     logs.newstuff[db][p][index] = newval;
                 } else {
-                    logError("ERROR encountered checking if tracking item exists. Returned " + exists);
+                    this.logError("ERROR encountered checking if tracking item exists. Returned " + exists);
                 }
             }
         }
@@ -1702,10 +1703,8 @@ const exitNow = function (end) {
     }
     process.exit(1);
 }
+
 */
 
-const exitNow = function (end) {
-    console.error("EXIT NOW CALLED!!!!");
-}
 
 

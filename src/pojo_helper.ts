@@ -1,7 +1,7 @@
 import { intoCompletrPath } from "./settings";
 import { Suggestion } from "./provider/provider";
 import { PojoConvert } from "./pojo_convert";
-import { Vault, TFile } from "obsidian";
+import { Vault, Platform, TFile } from "obsidian";
 import { stringify } from "querystring";
 
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
@@ -20,6 +20,7 @@ export class PojoHelper {
     private vault: Vault;
     private metaunits: object;
     private metatimes: object;
+    private logs: object;
 
     constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
         this.pojoProvider = pojoProvider;
@@ -27,6 +28,7 @@ export class PojoHelper {
         this.nohistoryx = false;
         this.defsec = this.settings.daily_entry_h3[0];
         this.vault = vault;
+        this.logs = {};
 
         const dbinfo = {};
         const dbkeys = [];
@@ -88,8 +90,73 @@ export class PojoHelper {
     pojoConversion ()
 
     getLogs () {
-        console.log("HELPER LOGS", logs);
-        return logs;
+        console.log("HELPER LOGS", this.logs);
+        return this.logs;
+    }
+
+    async saveTextToFile (messages: string[], filename: string) {
+        const fcontent = messages.join("\n");
+        await this.vault.adapter.write(intoCompletrPath(this.vault, filename), fcontent);
+    }
+
+    saveLogs () {
+        // Just errors for now!
+        this.saveTextToFile(this.logs["errors"], "errors.txt");
+    }
+
+    async pojoLogs (category: string, errs: string[], dobj?: object, bend?: boolean) {
+
+        if (category == "errors") {
+            for (const eem of errs) {
+                console.error(eem);
+            }
+            if (dobj) {
+                console.error(dobj);
+            }
+        }
+
+        if (!this.logs[category]) { this.logs[category] = []; }
+        for (const err of errs) {
+            this.logs[category].push(err);
+        }
+        if (dobj) {
+            this.logs[category].push(JSON.stringify(dobj, null, 3));
+        }
+
+        if (bend) {
+            this.saveLogs();
+        }
+    }
+
+    logDebug (category: string, msg: string, dobj?: object) {
+        this.pojoLogs("debug-" + category, [msg], dobj);
+    }
+
+    logError (msg: string, dobj?: object) {
+        this.pojoLogs("errors", [msg], dobj);
+    }
+
+    getPlatformInfo () {
+        const platform = Platform;
+        let info = "";
+
+        if (platform.isMobileApp) { info += " MobileApp"; }
+        if (platform.isDesktopApp) { info += " DesktopApp"; }
+        if (platform.isIosApp) { info += " IosApp"; }
+        if (platform.isAndroidApp) { info += " AndroidApp"; }
+
+
+        if (platform.isMacOS) { info += " MacOS"; }
+        if (platform.isWin) { info += " Win"; }
+        if (platform.isLinux) { info += " Linux"; }
+        if (platform.isSafari) { info += " Safari"; }
+
+        if (platform.isDesktop) { info += " Desktop"; }
+        if (platform.isMobile) { info += " Mobile"; }
+        if (platform.isTablet) { info += " Tablet"; }
+        if (platform.isPhone) { info += " Phone"; }
+
+        return info;
     }
 
     getHistory () {
@@ -109,7 +176,7 @@ export class PojoHelper {
         let loadedPojoHistory: object;
         const path = intoCompletrPath(this.vault, POJO_HISTORY_FILE);
         if (!(await this.vault.adapter.exists(path))) {
-            logError("NO History file found to load: " + path);
+            this.logError("NO History file found to load: " + path);
             loadedPojoHistory = {
                 "version": "???",
                 "databases": {}
@@ -118,17 +185,16 @@ export class PojoHelper {
             try {
                 loadedPojoHistory = await loadFromFile(this.vault, path);
             } catch (e) {
-                logError("ERROR loading Pojo History", e);
+                this.logError("ERROR loading Pojo History", e);
                 return;
             }
         }
         this.loadedPojoHistory = loadedPojoHistory;
         if (!loadedPojoHistory.version) {
-            logError("ERROR in history file!", loadedPojoHistory);
+            this.logError("ERROR in history file! NO VERSION");
             return;
         }
         console.log("POJO VERSION HISTORY " + this.loadedPojoHistory.version);
-        logError("23fe23R 10:00");
     }
 
     getDatabases (): string[] {
@@ -381,8 +447,7 @@ export class PojoHelper {
                 const allowed = vals.find(el => el.toLowerCase() == rtag.type.toLowerCase());
                 if (!allowed) {
                     const emsg = "INVALID type value for database " + rtag.database + " ref " + rtag.nref;
-                    logError(emsg, rtag.type);
-                    console.error(emsg, rtag.type);
+                    this.logError(emsg, rtag);
                 } else {
                     robj[dbinfo.type] = allowed;
                 }
@@ -396,7 +461,7 @@ export class PojoHelper {
                 if (aparams) {
                     let n = 0;
                     if (aparams.length > dbinfo.params.length) {
-                        logError("ERROR in tag params. More than expected for tag ", aparams, dbinfo.params);
+                        this.logError("ERROR in tag params. More than expected for tag ", aparams);
                         return null;
                     } else {
                         for (let p of aparams) {
@@ -420,8 +485,7 @@ export class PojoHelper {
                                                 });
                                                 if (!allowedp) {
                                                     const emsg = "INVALID parameter value for database " + rtag.database + " ref " + rtag.nref + " pvalue : " + p;
-                                                    logError(emsg, alla);
-                                                    console.error(emsg, alla);
+                                                    this.logError(emsg, alla);
                                                 } else {
                                                     p = allowedp;
                                                 }
@@ -689,13 +753,20 @@ export class PojoHelper {
             this.loadedPojoHistory.numsaves = 0;
         }
         this.loadedPojoHistory.numsaves++;
+
+        const now = new Date();
+        const nowinfo = now.toLocaleString();
+        const platforminfo = this.getPlatformInfo();
+        if (!this.loadedPojoHistory.history_editors) { this.loadedPojoHistory.history_editors = {}; }
+        this.loadedPojoHistory.history_editors[platforminfo] = this.loadedPojoHistory.version + "-" + this.loadedPojoHistory.numsaves + " --> " + nowinfo;
+
         console.log("POJO HISTORY!!", this.loadedPojoHistory);
         if (this.nohistoryx) {
             console.log("NO HISTORY CHANGES will be saved!!!");
             return;
         }
 
-        logError(">>> SAVING TO HISTORY " + this.loadedPojoHistory.numsaves);
+        this.logError(">>> SAVING TO HISTORY " + this.loadedPojoHistory.numsaves);
 
         await vault.adapter.write(intoCompletrPath(vault, POJO_HISTORY_FILE), JSON.stringify(this.loadedPojoHistory, null, 3));
     }
@@ -781,7 +852,7 @@ export class PojoHelper {
                 const allowed = vals.find(el => el == robj._type);
                 if (!allowed) {
                     const emsg = "INVALID type value for database " + robj._database;
-                    logError(emsg, robj.type);
+                    this.logError(emsg, robj.type);
                 } else {
                     robj[dbinfo.type] = allowed;
                 }
@@ -796,7 +867,7 @@ export class PojoHelper {
 
                 if (aparams) {
                     if (aparams.length > dbinfo.params.length) {
-                        logError("ERROR in tag params. More than expected for tag ", aparams, dbinfo.params);
+                        this.logError("ERROR in tag params. More than expected for tag ", aparams);
                         return null;
                     } else {
                         let pnum = 0;
@@ -825,7 +896,7 @@ export class PojoHelper {
                                                 });
                                                 if (!allowedp) {
                                                     const emsg = "INVALID parameter value for database " + robj.database + " pvalue : " + p;
-                                                    logError(emsg, alla);
+                                                    this.logError(emsg, alla);
                                                 } else {
                                                     p = allowedp;
                                                 }
@@ -1008,7 +1079,9 @@ export class PojoHelper {
             }
             return [...new Set([...values, ...this.getHistoryValues(dinfo, pname)])];
         } else {
-            console.error("ERROR - unknown allowed property: " + finfo.allowed, finfo);
+            if (finfo.allowed) {
+                console.error("ERROR - unknown allowed property: " + finfo.allowed, finfo);
+            }
             return [];
         }
     }
@@ -1083,25 +1156,4 @@ export async function loadFromFile (vault: Vault, file: string) {
     return data;
 }
 
-const logs = {
-    errors: [],
-    debug: []
-}
 
-
-export function logDebug (category: string, msg: string, dobj?: object) {
-    if (!logs.debug[category]) { logs.debug[category] = []; }
-    logs.debug[category].push(msg);
-    if (dobj) {
-        logs.debug[category].push(JSON.stringify(dobj, null, 3));
-    }
-}
-
-
-export function logError (msg: string, dobj?: object) {
-    console.error(msg, dobj);
-    logs.errors.push(msg);
-    if (dobj) {
-        logs.errors.push("   " + JSON.stringify(dobj, null, 3));
-    }
-}

@@ -23,9 +23,54 @@ class PojoSuggestionProvider implements SuggestionProvider {
     private lastlinep: object;
     private vault: Vault;
 
+    private async initializeProvider (invault: Vault): Promise<boolean> {
+        if (this.pojo) {
+            console.log("Already completed initializeProvder");
+            return true;
+        }
+
+        const vault = invault ? invault : this.vault;
+        if (!vault) {
+            console.error("Cannot initializeProvider as no vault specified");
+            return false;
+        }
+        this.vault = vault;
+
+        const path = intoCompletrPath(vault, POJO_SETTINGS_FILE);
+        console.log("HERE is the pojo settings PATH " + path);
+
+        if (!(await vault.adapter.exists(path))) {
+            console.error("NO Pojo Settings file found!", path);
+            this.loadedPojoSettings = undefined;
+            throw ({ name: "UserException", message: "Settings not found " + path });
+        } else {
+            try {
+                this.loadedPojoSettings = await loadFromFile(vault, path);
+            } catch (e) {
+                console.error("ERROR loading Pojo Settings ", e);
+                throw ({ name: "UserException", message: "Error loading settings file " + path });
+            }
+            if (!this.loadedPojoSettings.databases || !this.loadedPojoSettings.databases.info) {
+                console.error("INVALID pojo settings file!!");
+                throw ({ name: "UserException", message: "Settings invalid!" });
+            }
+        }
+
+        this.pojo = new PojoHelper(this, this.loadedPojoSettings, vault);
+        this.lastlinep = null;
+
+        await this.pojo.InitHistory();
+        return true;
+    }
+
     getSuggestions (context: SuggestionContext, settings: CompletrSettings): Suggestion[] {
         if (!settings.pojoProviderEnabled) {
             console.log("POJO Suggestions turned off!");
+            return [];
+        }
+
+        if (!this.pojo) {
+            console.error("getSuggestions has not been initialized!")
             return [];
         }
 
@@ -106,32 +151,16 @@ class PojoSuggestionProvider implements SuggestionProvider {
 
     async loadSuggestions (vault: Vault) {
         this.vault = vault;
-        const path = intoCompletrPath(vault, POJO_SETTINGS_FILE);
-
-        console.log("HERE is the pojo settings PATH " + path);
-
-        if (!(await vault.adapter.exists(path))) {
-            console.error("NO Pojo Settings file found!", path);
-            this.loadedPojoSettings = undefined;
-        } else {
-            try {
-                this.loadedPojoSettings = await loadFromFile(vault, path);
-            } catch (e) {
-                console.error("ERROR loading Pojo Settings ", e);
-                return;
-            }
-            if (!this.loadedPojoSettings.databases || !this.loadedPojoSettings.databases.info) {
-                console.error("INVALID pojo settings file!!");
-            }
-        }
-
-        this.pojo = new PojoHelper(this, this.loadedPojoSettings, vault);
-        this.lastlinep = null;
-
-        await this.pojo.InitHistory();
+        await this.initializeProvider(vault);
     }
 
-    async scanFiles (settings: CompletrSettings, files: TFile[]) {
+    async scanFiles (settings: CompletrSettings, files: TFile[], vault: Vault) {
+        console.log("scanFiles called");
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(vault);
+            if (!inited) { return; }
+        }
+
         const importFolder = this.loadedPojoSettings.import_folder;
         console.log("Scanning total files num: " + files.length);
         for (const file of files) {
@@ -145,21 +174,48 @@ class PojoSuggestionProvider implements SuggestionProvider {
         await this.pojo.saveHistory(files[0].vault);
     }
 
-    async deleteHistory (vault: Vault) {
+    async deleteHistoryProvider (vault: Vault) {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider();
+            if (!inited) { return; }
+        }
+
         await this.pojo.deleteHistory(vault);
     }
 
-    getLogs () {
+    async getLogsProvider () {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider();
+            if (!inited) { return; }
+        }
+
         const logs = this.pojo.getLogs();
         console.log("LOGS IN PROVIDER", logs);
         return logs;
     }
 
-    getHistoryVersion () {
+    async getPlatformInfoProvider (vault: Vault) {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(vault);
+            if (!inited) { return "Error encountered"; }
+        }
+
+        return this.pojo.getPlatformInfo();
+    }
+
+    async getHistoryVersionProvider (vault: Vault) {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(vault);
+            if (!inited) { return "ERROR getting history version"; }
+        }
         return this.pojo.getHistoryVersion();
     }
 
-    getHistory () {
+    async getHistoryProvider (vault: Vault) {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(vault);
+            if (!inited) { return []; }
+        }
         return this.pojo.getHistory();
     }
 
@@ -177,6 +233,11 @@ class PojoSuggestionProvider implements SuggestionProvider {
     }
 
     async loadData (vault: Vault) {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(vault);
+            if (!inited) { return; }
+        }
+
         const path = intoCompletrPath(vault, SCANNED_WORDS_PATH);
         if (!(await vault.adapter.exists(path)))
             return
@@ -195,21 +256,36 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
     }
 
-    pojoZap2 (app: object, bJustHint: boolean): null {
+    async pojoZap2 (app: object, bJustHint: boolean): Promise<null> {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(app.vault);
+            if (!inited) { return; }
+        }
+
         console.log("pojoZap2!");
         const dbname = "events";
-        const history = this.getHistory();
+        const history = await this.getHistoryProvider();
         new DatabaseReview(app, dbname, null, history.databases[dbname]).open();
     }
 
-    pojoZap (app: object, bJustHint: boolean): null {
+    async pojoZap (app: object, bJustHint: boolean): Promise<null> {
+        if (!this.pojo) {
+            const inited = await this.initializeProvider(app.vault);
+            if (!inited) { return; }
+        }
+
         console.log("HERE is hint " + this.hint);
-        const logs = this.getLogs();
+        const logs = await this.getLogsProvider();
         console.log("pojoZap on provider", logs);
-        new PojoZap(app, this.pojo, this.loadedPojoSettings, this.getHistory(), this.hint, logs).open();
+        const history = await this.getHistoryProvider();
+        new PojoZap(app, this.pojo, this.loadedPojoSettings, history, this.hint, logs).open();
     }
 
-    private generateHint (robj: object): string | null {
+    private generateHint (robj: object): string {
+        if (!this.pojo) {
+            return "";
+        }
+
         if (!robj || !robj._database) { return null; }
         const dinfo = this.pojo.getDatabaseInfo(robj._database);
         let hint = `${dinfo.database}/`;

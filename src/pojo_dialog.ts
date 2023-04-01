@@ -47,7 +47,7 @@ export class PojoZap extends Modal {
         }
 
         if (this.history && this.history.version) {
-            msg = "Version History is " + this.history.version;
+            msg = "History Version: " + this.history.version + "-" + this.history.numsaves + " | Settings Version: " + this.settings.settings_version;
         }
         this.contentEl.empty();
         new Setting(contentEl)
@@ -124,16 +124,30 @@ export class PojoZap extends Modal {
                     })
             )
 
-        new Setting(contentEl)
-            .setName("Error Logs")
+        if (this.history.history_editors) {
 
-        const newel = contentEl.createEl("div");
-        for (const log of this.logs.errors) {
-            newel.createEl("div", { text: log });
+            new Setting(contentEl)
+                .setName("History Editing")
+
+            const newel = contentEl.createEl("div");
+            for (const editor in this.history.history_editors) {
+                newel.createEl("div", { text: "[ " + editor + " ] " + this.history.history_editors[editor] });
+            }
+            newel.createEl("hr");
         }
-        newel.createEl("hr");
+
 
         console.error("HERE IS log.errors", this.logs.errors);
+        if (this.logs.errors) {
+            new Setting(contentEl)
+                .setName("Error Logs")
+
+            const newel = contentEl.createEl("div");
+            for (const log of this.logs.errors) {
+                newel.createEl("div", { text: log });
+            }
+            newel.createEl("hr");
+        }
 
     }
 
