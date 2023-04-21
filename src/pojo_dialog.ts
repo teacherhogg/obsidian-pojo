@@ -23,7 +23,7 @@ export class PojoZap extends Modal {
 
         console.log("CURRENT FILE CONTENT");
         const currentFile: TFile = app.workspace.getActiveFile();
-        if (currentFile.parent && currentFile.parent.name == "Daily Notes") {
+        if (currentFile && currentFile.parent && currentFile.parent.name == "Daily Notes") {
             console.log("YES this is a valid file for conversion!");
             this.currentFile = currentFile;
         }
@@ -73,6 +73,18 @@ export class PojoZap extends Modal {
                             }).open();
                     })
             )
+        /*
+                new Setting(contentEl)
+                    .addButton((btn) =>
+                        btn
+                            .setButtonText("Temporary")
+                            .onClick(async () => {
+                                console.log('Convert History JSON to MD');
+                                await this.pojo.convertHistoryTime(this.app.vault);
+                                console.log('FINISHED conversion eh?')
+                            })
+                    )
+        */
 
         new Setting(contentEl)
             .addButton((btn) =>

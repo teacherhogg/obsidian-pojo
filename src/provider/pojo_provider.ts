@@ -3,27 +3,26 @@ import {
     SuggestionContext,
     SuggestionProvider
 } from "./provider";
-import { CompletrSettings, intoCompletrPath } from "../settings";
+import { PojoSettings } from "../settings";
 import { Notice, parseLinktext, TFile, Vault, Platform } from "obsidian";
 import { PojoHelper, loadFromFile } from "../pojo_helper";
 import { PojoZap, PojoConfirm, DatabaseReview } from "../pojo_dialog";
-import { SuggestionBlacklist } from "./blacklist";
 import { platform } from "os";
-
-const POJO_SETTINGS_FILE = "pojo_settings.json";
 
 class PojoSuggestionProvider implements SuggestionProvider {
     blocksAllOtherProviders = true;
 
-    private loadedPojoSettings: Record<string, never>;
+    private loadedPojoSettings: object;
     private pojo: object;
     private lasthint: string;
     private hint: string;
     private statusbar: object;
     private lastlinep: object;
     private vault: Vault;
+    private initDBSuccess: false;
 
     private async initializeProvider (invault: Vault): Promise<boolean> {
+        console.log("initializeProvider CALLED");
         if (this.pojo) {
             console.log("Already completed initializeProvder");
             return true;
@@ -36,42 +35,23 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
         this.vault = vault;
 
-        const path = intoCompletrPath(vault, POJO_SETTINGS_FILE);
-        console.log("HERE is the pojo settings PATH " + path);
-
-        if (!(await vault.adapter.exists(path))) {
-            console.error("NO Pojo Settings file found!", path);
-            this.loadedPojoSettings = undefined;
-            throw ({ name: "UserException", message: "Settings not found " + path });
-        } else {
-            try {
-                this.loadedPojoSettings = await loadFromFile(vault, path);
-            } catch (e) {
-                console.error("ERROR loading Pojo Settings ", e);
-                throw ({ name: "UserException", message: "Error loading settings file " + path });
-            }
-            if (!this.loadedPojoSettings.databases || !this.loadedPojoSettings.databases.info) {
-                console.error("INVALID pojo settings file!!");
-                throw ({ name: "UserException", message: "Settings invalid!" });
-            }
-        }
-
         this.pojo = new PojoHelper(this, this.loadedPojoSettings, vault);
         this.lastlinep = null;
 
-        await this.pojo.InitHistory();
         return true;
     }
 
-    getSuggestions (context: SuggestionContext, settings: CompletrSettings): Suggestion[] {
-        if (!settings.pojoProviderEnabled) {
-            console.log("POJO Suggestions turned off!");
-            return [];
-        }
+    async getSuggestions (context: SuggestionContext, settings: PojoSettings): Promise<Suggestion[]> {
+        console.log("getSuggestions Called!");
 
         if (!this.pojo) {
             console.error("getSuggestions has not been initialized!")
             return [];
+        }
+
+        if (!this.initDBSuccess) {
+            this.initDBSuccess = await this.pojo.InitDatabases();
+            console.log("JUST initialized POJO", this.initDBSuccess);
         }
 
         const { editor } = context;
@@ -149,12 +129,13 @@ class PojoSuggestionProvider implements SuggestionProvider {
         return null;
     }
 
-    async loadSuggestions (vault: Vault) {
+    async loadSuggestions (vault: Vault, settings: object) {
         this.vault = vault;
+        this.loadedPojoSettings = settings;
         await this.initializeProvider(vault);
     }
 
-    async scanFiles (settings: CompletrSettings, files: TFile[], vault: Vault) {
+    async scanFiles (settings: PojoSettings, files: TFile[], vault: Vault) {
         console.log("scanFiles called");
         if (!this.pojo) {
             const inited = await this.initializeProvider(vault);
@@ -219,7 +200,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         return this.pojo.getHistory();
     }
 
-    async scanFile (settings: CompletrSettings, file: TFile) {
+    async scanFile (settings: PojoSettings, file: TFile) {
         const contents = await file.vault.cachedRead(file);
 
         const regex = new RegExp(/^#\w+\/\w+(.*)$|^###\s\w+\/\w+(.*)$/, "gm");
@@ -233,18 +214,10 @@ class PojoSuggestionProvider implements SuggestionProvider {
     }
 
     async loadData (vault: Vault) {
+        console.log("loadData CALLED");
         if (!this.pojo) {
             const inited = await this.initializeProvider(vault);
             if (!inited) { return; }
-        }
-
-        const path = intoCompletrPath(vault, SCANNED_WORDS_PATH);
-        if (!(await vault.adapter.exists(path)))
-            return
-
-        const contents = (await vault.adapter.read(path)).split(NEW_LINE_REGEX);
-        for (const word of contents) {
-            this.addWord(word);
         }
     }
 

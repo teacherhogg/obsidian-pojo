@@ -1,5 +1,5 @@
 import { EditorPosition, EditorSuggestContext } from "obsidian";
-import { CompletrSettings } from "../settings";
+import { PojoSettings } from "../settings";
 import { maybeLowerCase } from "../editor_helpers";
 
 export class Suggestion {
@@ -54,5 +54,5 @@ export interface SuggestionContext extends EditorSuggestContext {
 export interface SuggestionProvider {
     blocksAllOtherProviders?: boolean,
 
-    getSuggestions (context: SuggestionContext, settings: CompletrSettings): Suggestion[],
+    getSuggestions (context: SuggestionContext, settings: PojoSettings): Suggestion[],
 }

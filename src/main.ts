@@ -1,47 +1,42 @@
-import { EditorPosition, editorViewField, KeymapContext, MarkdownView, Plugin, TFile, } from "obsidian";
+import { EditorPosition, KeymapContext, MarkdownView, Plugin, TFile, } from "obsidian";
 import SnippetManager from "./snippet_manager";
 import SuggestionPopup, { SelectionDirection } from "./popup";
-import { CompletrSettings, DEFAULT_SETTINGS } from "./settings";
-import { WordList } from "./provider/word_list_provider";
-import { FileScanner } from "./provider/scanner_provider";
-import CompletrSettingsTab from "./settings_tab";
+import { PojoSettings, DEFAULT_SETTINGS } from "./settings";
+import PojoSettingsTab from "./settings_tab";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 import { editorToCodeMirrorState, posFromIndex } from "./editor_helpers";
 import { markerStateField } from "./marker_state_field";
-import { FrontMatter } from "./provider/front_matter_provider";
-import { Latex } from "./provider/latex_provider";
-import { Callout } from "./provider/callout_provider";
 import { Pojo } from "./provider/pojo_provider";
-import { SuggestionBlacklist } from "./provider/blacklist";
 
-export default class CompletrPlugin extends Plugin {
+export default class PojoPlugin extends Plugin {
 
-    settings: CompletrSettings;
+    settings: PojoSettings;
 
     private snippetManager: SnippetManager;
     private _suggestionPopup: SuggestionPopup;
 
     async onload () {
-        await this.loadSettings();
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+        console.log("POJO PLUGIN onload called....", this.app.vault)
+        // This initializes all of pojo.
+        await Pojo.loadSuggestions(this.app.vault, this.settings);
+        console.log("POJO initialized...");
 
         this.snippetManager = new SnippetManager();
         this._suggestionPopup = new SuggestionPopup(this.app, this.settings, this.snippetManager);
 
         this.registerEditorSuggest(this._suggestionPopup);
 
-        this.registerEvent(this.app.workspace.on('file-open', this.onFileOpened, this));
-        this.registerEvent(this.app.metadataCache.on('changed', FrontMatter.onCacheChange, FrontMatter));
-        this.app.workspace.onLayoutReady(() => FrontMatter.loadYAMLKeyCompletions(this.app.metadataCache, this.app.vault.getMarkdownFiles()));
+        //        this.registerEditorExtension(markerStateField);
+        //        this.registerEditorExtension(EditorView.updateListener.of(new CursorActivityListener(this.snippetManager, this._suggestionPopup).listener));
 
-        this.registerEditorExtension(markerStateField);
-        this.registerEditorExtension(EditorView.updateListener.of(new CursorActivityListener(this.snippetManager, this._suggestionPopup).listener));
-
-        this.addSettingTab(new CompletrSettingsTab(this.app, this));
+        this.addSettingTab(new PojoSettingsTab(this.app, this));
 
         this.setupCommands();
 
         if ((this.app.vault as any).config?.legacyEditor) {
-            console.log("Completr: Without Live Preview enabled, most features of Completr will not work properly!");
+            console.log("Pojo: Without Live Preview enabled, most features of Pojo will not work properly!");
         }
     }
 
@@ -201,23 +196,6 @@ export default class CompletrPlugin extends Plugin {
             isVisible: () => this._suggestionPopup.isVisible(),
         });
         this.addCommand({
-            id: 'completr-blacklist-current-word',
-            name: 'Add the currently selected word to the blacklist',
-            hotkeys: [
-                {
-                    key: "D",
-                    modifiers: ["Shift"]
-                }
-            ],
-            editorCallback: (editor) => {
-                SuggestionBlacklist.add(this._suggestionPopup.getSelectedItem());
-                SuggestionBlacklist.saveData(this.app.vault);
-                (this._suggestionPopup as any).trigger(editor, this.app.workspace.getActiveFile(), true);
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
             id: 'completr-close-suggestion-popup',
             name: 'Close suggestion popup',
             hotkeys: [
@@ -285,19 +263,6 @@ export default class CompletrPlugin extends Plugin {
 
     async onunload () {
         this.snippetManager.onunload();
-        await FileScanner.saveData(this.app.vault);
-    }
-
-    async loadSettings () {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-
-        SuggestionBlacklist.loadData(this.app.vault).then(() => {
-            WordList.loadFromFiles(this.app.vault, this.settings);
-            FileScanner.loadData(this.app.vault);
-            Latex.loadCommands(this.app.vault);
-            Pojo.loadSuggestions(this.app.vault);
-            Callout.loadSuggestions(this.app.vault);
-        });
     }
 
     get suggestionPopup () {
@@ -306,13 +271,6 @@ export default class CompletrPlugin extends Plugin {
 
     async saveSettings () {
         await this.saveData(this.settings);
-    }
-
-    private readonly onFileOpened = (file: TFile) => {
-        if (!this.settings.fileScannerProviderEnabled || !this.settings.fileScannerScanCurrent || !file)
-            return;
-
-        FileScanner.scanFile(this.settings, file, true);
     }
 }
 

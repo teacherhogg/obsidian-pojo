@@ -1,56 +1,138 @@
 import { Vault } from "obsidian";
 
-export const enum WordInsertionMode {
-    MATCH_CASE_REPLACE = "Match-Case & Replace",
-    IGNORE_CASE_REPLACE = "Ignore-Case & Replace",
-    IGNORE_CASE_APPEND = "Ignore-Case & Append"
-}
-
-export interface CompletrSettings {
+export interface PojoSettings {
+    settings_version: string,
+    metameta: object,
     characterRegex: string,
     maxLookBackDistance: number,
     minWordLength: number,
     minWordTriggerLength: number,
-    wordInsertionMode: WordInsertionMode,
-    ignoreDiacriticsWhenFiltering: boolean,
-    latexProviderEnabled: boolean,
-    latexTriggerInCodeBlocks: boolean,
-    latexMinWordTriggerLength: number,
-    latexIgnoreCase: boolean,
-    fileScannerProviderEnabled: boolean,
-    fileScannerScanCurrent: boolean,
-    wordListProviderEnabled: boolean,
-    frontMatterProviderEnabled: boolean,
-    frontMatterTagAppendSuffix: boolean,
-    frontMatterIgnoreCase: boolean,
-    calloutProviderEnabled: boolean,
-    pojoProviderEnabled: boolean,
+    frontmatter_always_add: object,
+    frontmatter_always_add_moc: string[],
+    frontmatter_add: string[],
+    frontmatter_dateplus: string[],
+    frontmatter_params_include: string[],
+    frontmatter_params_exclude: string[],
+    sections_verbose: boolean,
+    links_params_exclude: string[],
+    daily_entry_h3: string[],
+    params_not_metadata: string[],
+    folder_attachments: string,
+    folder_daily_notes: string,
+    folder_moc: string,
+    folder_pojo: string,
+    subfolder_databases: string,
+    subfolder_archived_daily_notes: string,
+    subfolder_metadata: string,
+    subfolder_templates: string,
+    markdown_rename: string,
+    split_param: string;
+    delete_meta: string[],
+    donotcreatefiles: false,
+    donotcopyattachments: false,
+    import_folder: string,
+    export_folder: string
 }
 
-export const DEFAULT_SETTINGS: CompletrSettings = {
-    characterRegex: "a-zA-ZöäüÖÄÜß",
-    maxLookBackDistance: 50,
-    minWordLength: 2,
-    minWordTriggerLength: 3,
-    wordInsertionMode: WordInsertionMode.IGNORE_CASE_REPLACE,
-    ignoreDiacriticsWhenFiltering: false,
-    latexProviderEnabled: true,
-    latexTriggerInCodeBlocks: true,
-    latexMinWordTriggerLength: 2,
-    latexIgnoreCase: false,
-    fileScannerProviderEnabled: true,
-    fileScannerScanCurrent: true,
-    wordListProviderEnabled: true,
-    frontMatterProviderEnabled: true,
-    frontMatterTagAppendSuffix: true,
-    frontMatterIgnoreCase: true,
-    calloutProviderEnabled: true,
-    pojoProviderEnabled: true,
+export const DEFAULT_SETTINGS: PojoSettings = {
+    "settings_version": "0.9.80",
+    "frontmatter_always_add": {
+        "Type": "Diary",
+        "POJO": "0.9.80"
+    },
+    "frontmatter_always_add_moc": ["Type: MOC", "POJO: 0.9.71"],
+    "characterRegex": "a-zA-ZöäüÖÄÜß",
+    "maxLookBackDistance": 50,
+    "minWordLength": 2,
+    "minWordTriggerLength": 3,
+    "metameta": {
+        "Start Time": {
+            "type": "start-time",
+            "display": "|⏰",
+            "units": ["", "s"]
+        },
+        "Duration": {
+            "type": "duration",
+            "units": ["", "h", "hr", "min", "m"]
+        },
+        "End Time": {
+            "type": "end-time",
+            "display": "⏰|",
+            "units": ["e", "end"]
+        },
+        "Happiness": {
+            "type": "scale",
+            "min": 1,
+            "max": 10,
+            "display": "⭐",
+            "units": ["j", "joy"]
+        },
+        "Energy": {
+            "type": "scale",
+            "min": 1,
+            "max": 10,
+            "display": "⚡",
+            "units": ["z"]
+        }
+    },
+    "frontmatter_add": [
+        "Daily Entry/ISOdave:String:ISODave",
+        "Daily Entry/Now:Date:Last Converted",
+        "Daily Entry/Date:DatePlus:Diary Date"
+    ],
+    "frontmatter_dateplus": [
+        "Season",
+        "Quarter",
+        "Month",
+        "YY-MM",
+        "YY-WK",
+        "Day of Week"
+    ],
+    "frontmatter_params_include": [
+        "Learning:Author",
+        "Medical:Subtype",
+        "Project:Subtype",
+        "Entertainment:Companions",
+        "Entertainment:Location",
+        "Productivity:Category",
+        "Exercise:Companions",
+        "Exercise:Location",
+        "Active:Companions",
+        "Active:Location"
+    ],
+    "frontmatter_params_exclude": ["Tasks", "Metadata:Value"],
+    "sections_verbose": true,
+    "links_params_exclude": [
+        "Description",
+        "URL",
+        "Value",
+        "Daily Entry",
+        "ISOdave",
+        "Date"
+    ],
+    "daily_entry_h3": ["Daily Entry"],
+    "params_not_metadata": ["Description"],
+    "folder_attachments": "attachments",
+    "folder_moc": "automoc",
+    "folder_daily_notes": "Daily Notes",
+    "folder_pojo": "POJO",
+    "subfolder_databases": "databases",
+    "subfolder_archived_daily_notes": "archived",
+    "subfolder_metadata": "metadata",
+    "subfolder_templates": "templates",
+    "markdown_rename": "Diary Date",
+    "split_param": ";",
+    "delete_meta": ["Event Type"],
+    "donotcreatefiles": false,
+    "donotcopyattachments": false,
+    "import_folder": "Daily Notes",
+    "export_folder": "Journal"
 }
 
-export function intoCompletrPath (vault: Vault, ...path: string[]): string {
+export function generatePath (...path: string[]): string {
+    return path.join("/");
+}
 
-    //    return vault.adapter.basePath + "\\pojo\\" + path.join("\\");
-
+export function pluginPath (vault: Vault, ...path: string[]): string {
     return vault.configDir + "/plugins/obsidian-pojo/" + path.join("/");
 }

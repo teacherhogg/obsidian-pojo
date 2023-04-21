@@ -1,8 +1,7 @@
 import { Vault, TFile } from "obsidian";
-import { intoCompletrPath } from "./settings";
 import { parse } from "@textlint/markdown-to-ast";
-import { path } from "path";
 import matter from 'gray-matter';
+import { PojoSettings, generatePath } from "./settings";
 
 const imageactions = {
     convert: [],
@@ -19,7 +18,7 @@ const defcatch = "Daily Info";
 
 export class PojoConvert {
 
-    private settings: object;
+    private settings: PojoSettings;
     private vault: Vault;
     private defsec: string;
     private currentdb: string;
@@ -28,7 +27,7 @@ export class PojoConvert {
     private pojo: object;
     private memoizeTracking = {};
 
-    constructor(settings: object, pojo: object, vault: Vault) {
+    constructor(settings: PojoSettings, pojo: object, vault: Vault) {
         this.settings = settings;
         this.pojo = pojo
         this.vault = vault;
@@ -49,7 +48,8 @@ export class PojoConvert {
         try {
             // Get file contents
             if (convertAgain) {
-                contentFile = this.vault.getAbstractFileByPath(this.settings.folder_archived_daily_notes + "/" + inputFile.name);
+                const fname = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes, inputFile.name);
+                contentFile = this.vault.getAbstractFileByPath(fname);
             }
 
             content = await this.vault.read(contentFile);
@@ -116,7 +116,8 @@ export class PojoConvert {
 
         // Archive the original daily note
         if (!convertAgain) {
-            await this.pojo.createMarkdownFile(content, this.settings.folder_archived_daily_notes, inputFile.name);
+            const mfolder = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes);
+            await this.pojo.createMarkdownFile(content, mfolder, inputFile.name);
         }
 
         // Construct the NEW daily note from parsedcontent
@@ -186,7 +187,7 @@ export class PojoConvert {
         const BSKIPFORNOW = true;
         if (!this.settings.donotcopyattachments && !BSKIPFORNOW) {
             console.log("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
-            const attdir = path.join(this.settings.export_folder, this.settings.folder_attachments);
+            const attdir = generatePath(this.settings.export_folder, this.settings.folder_attachments);
             fs.ensureDirSync(attdir);
 
             nCount = 0;
@@ -234,10 +235,6 @@ export class PojoConvert {
 
     async convertNow (): Promise<boolean> {
 
-        // Read previous import tracking info
-        console.log("Read in tracking file");
-        this.readTrackingInfo();
-
         // Get the list of markdown files in the import directory and start processing.
         if (!this.settings.import_folder) {
             this.logError("MISSING import folder in this.settings file.")
@@ -256,13 +253,6 @@ export class PojoConvert {
         }
         console.log("FINISHED import of " + importFiles.length + " markdown files");
 
-        // Output tracking files
-        try {
-            this.writeTrackingFiles();
-        } catch (err) {
-            const errmsg = "ERROR writing out tracking files.";
-            console.error(errmsg, err);
-        }
 
         this.logDebug("exported", "FOUND FOR EXPORT", exportContent);
 
@@ -287,7 +277,7 @@ export class PojoConvert {
         // Copy (and convert if HEIC) with any referenced images
         if (!this.settings.donotcopyattachments) {
             console.log("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
-            const attdir = path.join(this.settings.export_folder, this.settings.folder_attachments);
+            const attdir = generatePath(this.settings.export_folder, this.settings.folder_attachments);
             fs.ensureDirSync(attdir);
 
             nCount = 0;
@@ -330,24 +320,6 @@ export class PojoConvert {
         console.log("EXITING NOW!!!");
 
         this.exitNow([], true);
-    }
-
-    async readTrackingFile () {
-
-        const trackfile = path.join(trackingFolder, "tracking.json");
-        let tracking: object;
-        const path = intoCompletrPath(this.vault, POJO_TRACKING_FILE);
-        if (!(await this.vault.adapter.exists(path))) {
-            tracking = {};
-        } else {
-            try {
-                tracking = await loadFromFile(this.vault, path);
-            } catch (e) {
-                console.error("ERROR loading Pojo History", e);
-                return;
-            }
-        }
-        //        this.logs.tracking = tracking;
     }
 
     private exitNow (erra: string[], bend?: boolean) {
@@ -459,13 +431,13 @@ export class PojoConvert {
                             iobj.imageurl = decodeURI(c.url);
                             const pimage = path.parse(iobj.imageurl);
                             iobj.imageext = pimage.ext;
-                            iobj.source = path.join(this.settings.import_folder, iobj.imageurl);
+                            iobj.source = generatePath(this.settings.import_folder, iobj.imageurl);
                             iobj.imagename = pimage.base;
                             if (pimage.ext == ".HEIC") {
                                 // Need to convert to jpg.
                                 iobj.imagename = pimage.name + ".jpg";
                             }
-                            iobj.target = path.join(this.settings.export_folder, this.settings.folder_attachments, iobj.imagename);
+                            iobj.target = generatePath(this.settings.export_folder, this.settings.folder_attachments, iobj.imagename);
                         } else {
                             if (iobj && c.value && c.value !== "\n") {
                                 iobj.caption = c.value;
@@ -521,7 +493,7 @@ export class PojoConvert {
         const dbinfo = this.pojo.getDatabaseInfo(db);
         if (dbinfo && dbinfo["field-info"] && dbinfo["field-info"][key]) {
             const finfo = dbinfo["field-info"][key];
-            if (finfo.multi) {
+            if (finfo.multi && finfo.multi !== "NA") {
                 return true;
             }
         }
@@ -554,27 +526,6 @@ export class PojoConvert {
             delete parsed[dbref][last].database;
             delete parsed[dbref][last].canonical;
 
-            /*
-            for (const kyp in parsed[dbref][last]) {
-//                console.log("parsed times " + kyp, last, parsed[dbref]);
-                const kval = parsed[dbref][last][kyp];
-                if (self.checkMultiValued(dbref, kyp, "parseline")) {
-                    //                    console.log("Here is kval!", kval);
-                    if (!Array.isArray(kval)) {
-                        const aval = kval.split(",");
-                        for (let i = 0; i < aval.length; i++) {
-                            const nobj = {};
-                            nobj[kyp] = aval[i];
-                            self.trackingInfo(parsed, dbref, nobj);
-                        }
-                    }
-                } else {
-                    const nobj2 = {};
-                    nobj2[kyp] = kval;
-                    self.trackingInfo(parsed, dbref, nobj2);
-                }
-            }
-            */
         }
 
         if (!parsed[this.defsec]) { parsed[this.defsec] = []; }
@@ -709,8 +660,9 @@ export class PojoConvert {
 
     private createMOCFiles (bOverwrite: boolean) {
 
+        const self = this;
         const _getMOCcontent = function (moctype: string): object {
-            const moctemplate = path.join(process.env.POJO_FOLDER, "this.settings", "templates", moctype + ".md");
+            const moctemplate = generatePath(process.env.POJO_FOLDER, "this.settings", self.settings.subfolder_templates, moctype + ".md");
             let mdcontent;
             try {
                 mdcontent = fs.readFileSync(moctemplate, 'utf8');
@@ -779,7 +731,7 @@ export class PojoConvert {
             } else {
                 mocname = fname;
             }
-            const moc = path.join(this.settings.export_folder, this.settings.folder_moc, mocname + ".md");
+            const moc = generatePath(this.settings.export_folder, this.settings.folder_moc, mocname + ".md");
 
             if (bOverwrite || !fs.existsSync(moc)) {
                 // Only create if an existing file does not exist!
@@ -804,32 +756,6 @@ export class PojoConvert {
                     _createMOC(pv, "value", dbname, param, pv)
                 }
             }
-        }
-    }
-
-    private writeTrackingFiles () {
-
-        // Update tracking.json with the latest new imports.
-        for (const db in logs.newstuff) {
-            if (!logs.tracking[db]) { logs.tracking[db] = {}; }
-            for (const p in logs.newstuff[db]) {
-                if (!logs.tracking[db][p]) { logs.tracking[db][p] = []; }
-                for (const pval of logs.newstuff[db][p]) {
-                    logs.tracking[db][p].push(pval);
-                }
-            }
-        }
-
-        const trackfile = path.join(trackingFolder, "tracking.json");
-        try {
-            fs.outputFileSync(trackfile, JSON.stringify(logs.tracking, null, 3));
-
-            const cdate = new Date();
-            const lasttrack = path.join(trackingFolder, "lasttrack " + cdate.toDateString() + ".json");
-            fs.outputFileSync(lasttrack, JSON.stringify(logs.newstuff, null, 3));
-        } catch (err) {
-            console.warn(`Error writing trackfile ` + trackfile, err);
-            process.exit(1);
         }
     }
 
@@ -1173,7 +1099,7 @@ export class PojoConvert {
 
         const typeparam = dbinfo.type;
 
-        // Note that these records will be files in the folder defined by the this.settings parameter 'folder_metadata'
+        // Note that these records will be files in the folder defined by the this.settings parameter 'subfolder_metadata'
         let nentry = 1;
         for (const item of dbentry) {
             const newrecord = {
@@ -1459,7 +1385,8 @@ export class PojoConvert {
             }
 
             const filename = record.Database + "-" + record.Date + "-" + record.Nentry + rcount + ".md";
-            await self.pojo.createMarkdownFile(md.join("\n"), self.settings.folder_metadata, filename, true);
+            const foldername = generatePath(self.settings.folder_pojo, self.settings.subfolder_metadata);
+            await self.pojo.createMarkdownFile(md.join("\n"), foldername, filename, true);
 
             rcount++;
         };
@@ -1614,97 +1541,8 @@ export class PojoConvert {
         }
     }
 }
-//let lastdb = null;
-//let lastidx = 0;
 
-let trackingFolder;
-let logFolder;
 
-/*
-const init = function () {
-    if (!process.env.POJO_FOLDER) {
-        console.error("ERROR - Need to define POJO_FOLDER in .env file!");
-        process.exit(1);
-    }
-
-    // this.settings
-    this.settingsFolder = path.join(process.env.POJO_FOLDER, "this.settings");
-
-    // Process options
-    let this.settingsfile;
-    for (let n = 2; n < process.argv.length; n++) {
-        if (process.argv[n].charAt(0) == "-") {
-            switch (process.argv[n].charAt(1)) {
-                default:
-                    console.error("Unexpected option paramater.", process.argv[n]);
-                    process.exit(1);
-            }
-        } else {
-            this.settingsfile = process.argv[n];
-        }
-    }
-
-    // Read in this.settings file and put contents into this.settings
-    console.log("REad in this.settings file " + this.settingsfile);
-    readthis.settingsFile(this.settingsfile);
-
-    if (!this.settings.daily_entry_h3) {
-        this.defsec = "Daily Entry";
-    } else {
-        this.defsec = this.settings.daily_entry_h3;
-    }
-
-    if (!this.settings.conversion_info_folder) {
-        console.error("conversion_info_folder not specified in this.settings file", this.settingsfile);
-        process.exit(1);
-    }
-
-    // Tracking Information
-    trackingFolder = path.join(process.env.POJO_FOLDER, this.settings.conversion_info_folder, "Tracking");
-
-    // Logging
-    logFolder = path.join(process.env.POJO_FOLDER, this.settings.conversion_info_folder, "Logs");
-
-}
-
-const exitNow = function (end) {
-
-    // Output the debug files and errors.txt files.
-    for (let dfile in logs.debug) {
-        let debugfile = path.join(logFolder, dfile + '.txt');
-        console.log("DEBUG INFO FILE " + debugfile);
-        if (logs.debug[dfile].length > 0) {
-            fs.outputFileSync(debugfile, logs.debug[dfile].join("\n"));
-        } else {
-            fs.removeSync(debugfile);
-        }
-    }
-
-    const errFile = path.join(logFolder, "errors.txt");
-    if (logs.errors.length > 0) {
-        console.error("ERRORS found and logged in " + errFile);
-        fs.writeFileSync(errFile, logs.errors.join("\n"));
-        //        console.error(" ");
-        //        console.error(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        //        for (let error of logs.errors) {
-        //            console.error(error);
-        //        }
-        //        console.error(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    } else {
-        fs.removeSync(errFile);
-        console.log("NO ERRORS found. Complete.");
-    }
-
-    if (!end) {
-        console.error("Process exited early!");
-        if (currentfile) {
-            console.error(" -> Was processing this file at exit: " + currentfile);
-        }
-    }
-    process.exit(1);
-}
-
-*/
 
 
 

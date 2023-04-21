@@ -1,7 +1,4 @@
 import { Suggestion, SuggestionProvider } from "./provider/provider";
-import { Latex } from "./provider/latex_provider";
-import { WordList } from "./provider/word_list_provider";
-import { FileScanner } from "./provider/scanner_provider";
 import {
     App,
     Editor,
@@ -14,14 +11,11 @@ import {
     TFile
 } from "obsidian";
 import SnippetManager from "./snippet_manager";
-import { CompletrSettings } from "./settings";
-import { FrontMatter } from "./provider/front_matter_provider";
+import { PojoSettings } from "./settings";
 import { matchWordBackwards } from "./editor_helpers";
-import { SuggestionBlacklist } from "./provider/blacklist";
-import { Callout } from "./provider/callout_provider";
 import { Pojo } from "./provider/pojo_provider";
 
-const PROVIDERS: SuggestionProvider[] = [FrontMatter, Pojo, Callout, Latex, FileScanner, WordList];
+const PROVIDERS: SuggestionProvider[] = [Pojo];
 
 export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     /**
@@ -34,10 +28,10 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     private compiledCharacterRegex: RegExp;
 
     private readonly snippetManager: SnippetManager;
-    private readonly settings: CompletrSettings;
+    private readonly settings: PojoSettings;
     private readonly disableSnippets: boolean;
 
-    constructor(app: App, settings: CompletrSettings, snippetManager: SnippetManager) {
+    constructor(app: App, settings: PojoSettings, snippetManager: SnippetManager) {
         super(app);
         this.disableSnippets = (app.vault as any).config?.legacyEditor;
         this.settings = settings;
@@ -56,28 +50,15 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
         instructions.push(newinst);
     }
 
-    getSuggestions (
+    async getSuggestions (
         context: EditorSuggestContext
     ): Suggestion[] | Promise<Suggestion[]> {
         let suggestions: Suggestion[] = [];
 
-        for (const provider of PROVIDERS) {
-            suggestions = [...suggestions, ...provider.getSuggestions({
-                ...context,
-                separatorChar: this.separatorChar
-            }, this.settings)];
-
-            if (provider.blocksAllOtherProviders && suggestions.length > 0) {
-                suggestions.forEach((suggestion) => {
-                    if (!suggestion.overrideStart)
-                        return;
-
-                    // Fixes popup position
-                    this.context.start = suggestion.overrideStart;
-                });
-                break;
-            }
-        }
+        suggestions = await Pojo.getSuggestions({
+            ...context,
+            separatorChar: this.separatorChar
+        }, this.settings);
 
         const seen = new Set<string>();
         suggestions = suggestions.filter((suggestion) => {
@@ -88,13 +69,7 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
             return true;
         });
 
-        //        console.log("ZULU SUGGESTS ", suggestions);
-
-        const bls = suggestions.length === 0 ? null : suggestions.filter(s => !SuggestionBlacklist.has(s));
-
-        //        console.log("BLS is ", bls);
-
-        return bls;
+        return suggestions;
     }
 
     onTrigger (cursor: EditorPosition, editor: Editor, file: TFile): EditorSuggestTriggerInfo | null {

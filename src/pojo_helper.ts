@@ -1,8 +1,7 @@
-import { intoCompletrPath } from "./settings";
+import { PojoSettings, generatePath, pluginPath } from "./settings";
 import { Suggestion } from "./provider/provider";
-import { PojoConvert } from "./pojo_convert";
-import { Vault, Platform, TFile } from "obsidian";
-import { stringify } from "querystring";
+import { Vault, Platform, TFile, TFolder } from "obsidian";
+import matter from 'gray-matter';
 
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
 const POJO_H3_PREFIX_REGEX = /^### /;
@@ -11,7 +10,7 @@ const POJO_HISTORY_FILE = "pojo_history.json";
 
 export class PojoHelper {
 
-    private settings: object;
+    private settings: PojoSettings;
     private pojoProvider: object;
     private loadedPojoDB: Record<string, never>;
     private loadedPojoHistory: object;
@@ -22,22 +21,13 @@ export class PojoHelper {
     private metatimes: object;
     private logs: object;
 
-    constructor(pojoProvider: object, pojosettings: object, vault: Vault) {
+    constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault) {
         this.pojoProvider = pojoProvider;
         this.settings = pojosettings;
         this.nohistoryx = false;
         this.defsec = this.settings.daily_entry_h3[0];
         this.vault = vault;
         this.logs = {};
-
-        const dbinfo = {};
-        const dbkeys = [];
-        for (const db of this.settings.databases.info) {
-            dbinfo[db.database] = db;
-            dbkeys.push(db.database);
-        }
-        this.loadedPojoDB = dbinfo;
-        this.pojoDatabases = dbkeys;
 
         this.metaunits = {};
         this.metatimes = {};
@@ -73,7 +63,7 @@ export class PojoHelper {
             await this.vault.adapter.mkdir(folder);
         }
 
-        const filepath = folder + "/" + filename;
+        const filepath = generatePath(folder, filename);
         if (await this.vault.adapter.exists(filepath)) {
             console.error("FILE ALREADY EXISTS! " + filepath);
             if (bOverwrite) {
@@ -96,7 +86,7 @@ export class PojoHelper {
 
     async saveTextToFile (messages: string[], filename: string) {
         const fcontent = messages.join("\n");
-        await this.vault.adapter.write(intoCompletrPath(this.vault, filename), fcontent);
+        await this.vault.adapter.write(pluginPath(this.vault, filename), fcontent);
     }
 
     saveLogs () {
@@ -172,29 +162,54 @@ export class PojoHelper {
         }
     }
 
-    async InitHistory () {
-        let loadedPojoHistory: object;
-        const path = intoCompletrPath(this.vault, POJO_HISTORY_FILE);
-        if (!(await this.vault.adapter.exists(path))) {
-            this.logError("NO History file found to load: " + path);
-            loadedPojoHistory = {
-                "version": "???",
-                "databases": {}
-            };
-        } else {
-            try {
-                loadedPojoHistory = await loadFromFile(this.vault, path);
-            } catch (e) {
-                this.logError("ERROR loading Pojo History", e);
-                return;
+    async initFromPojoFolder () {
+        console.log("HERE is settings eh?", this.settings);
+        const dbpath = generatePath(this.settings.folder_pojo, this.settings.subfolder_databases);
+        const dbfolder = this.vault.getAbstractFileByPath(dbpath) as TFolder;
+        console.log("initDB stuff for " + dbpath, dbfolder);
+        if (!dbfolder) {
+            console.error("ERROR - database folder is NOT FOUND!", dbpath);
+            return false;
+        }
+
+        const pojoDB = {};
+        const pojoHistory = {
+            version: "???",
+            databases: {}
+        };
+        const dbkeys = [];
+
+        if (dbfolder && dbfolder.children) {
+            for (const fobj of dbfolder.children) {
+                const fname = this.vault.getAbstractFileByPath(fobj.path);
+                const fm = await this.getMarkdownFileInfo(fname);
+                if (fm) {
+                    const dbname = fm._database.database;
+                    dbkeys.push(dbname);
+                    pojoDB[dbname] = fm._database;
+                    pojoHistory.databases[dbname] = fm;
+                }
             }
+        } else {
+            return false;
         }
-        this.loadedPojoHistory = loadedPojoHistory;
-        if (!loadedPojoHistory.version) {
-            this.logError("ERROR in history file! NO VERSION");
-            return;
-        }
-        console.log("POJO VERSION HISTORY " + this.loadedPojoHistory.version);
+
+        this.loadedPojoDB = pojoDB;
+        this.loadedPojoHistory = pojoHistory;
+
+        console.log("POJO DB NEW", pojoDB);
+        //        console.log("POJO DB OLD", this.loadedPojoDB);
+
+        console.log("POJO HISTORY NEW", pojoHistory);
+        //      console.log("POJO HISTORY OLD", this.loadedPojoHistory);
+
+        this.pojoDatabases = dbkeys;
+
+        return true;
+    }
+
+    async InitDatabases () {
+        return await this.initFromPojoFolder();
     }
 
     getDatabases (): string[] {
@@ -335,7 +350,12 @@ export class PojoHelper {
 
         // moc is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
         const mocref = dbinfo["field-info"][fieldname].mocref;
-        const multi = dbinfo["field-info"][fieldname].multi;
+        let multi = dbinfo["field-info"][fieldname].multi;
+        if (multi == "DASH") {
+            multi = "-";
+        } else if (multi == "COMMA") {
+            multi = ","
+        }
 
         if (!mocref) {
             return null;
@@ -346,7 +366,7 @@ export class PojoHelper {
         let retarray = null;
         if (mocref == "moc") {
             retarray = [];
-            if (multi) {
+            if (multi && multi !== "NA") {
                 if (Array.isArray(fieldvalues)) {
                     retarray = fieldvalues;
                 } else {
@@ -360,7 +380,7 @@ export class PojoHelper {
             }
         } else if (mocref == "moc-type") {
             retarray = [];
-            if (multi) {
+            if (multi && multi !== "NA") {
                 let a2;
                 if (Array.isArray(fieldvalues)) {
                     a2 = fieldvalues;
@@ -374,7 +394,9 @@ export class PojoHelper {
                 retarray.push(type + " " + fieldvalues);
             }
         } else {
-            console.error("UNKNOWN mocref value " + mocref, fieldname, dbinfo);
+            if (mocref !== "NA") {
+                console.error("UNKNOWN mocref value " + mocref, fieldname, dbinfo);
+            }
         }
 
 
@@ -491,7 +513,7 @@ export class PojoHelper {
                                                 }
                                             }
                                         }
-                                        if (finfo[pkey].multi) {
+                                        if (finfo[pkey].multi && finfo[pkey] !== "NA") {
                                             const splitchar = finfo[pkey].multi;
                                             const va = p.split(splitchar);
                                             for (let i = 0; i < va.length; i++) {
@@ -521,6 +543,124 @@ export class PojoHelper {
         }
 
         return robj;
+    }
+
+    convertDBInfoToYaml (dbinfo: object, md: string[],) {
+        md.push("_database: ");
+
+        if (dbinfo.database) {
+            md.push("   database: " + dbinfo.database);
+        }
+
+        if (dbinfo.type) {
+            md.push("   type: " + dbinfo.type);
+        }
+
+        if (dbinfo.params) {
+            const pstr = "[" + dbinfo.params.join(",") + "]";
+            md.push("   params: " + pstr);
+        }
+
+        if (dbinfo["field-info"]) {
+            md.push("   field-info:");
+            for (const field in dbinfo["field-info"]) {
+                const finfo = dbinfo["field-info"][field];
+                md.push("      " + field + ":");
+                for (const fp in finfo) {
+                    if (fp !== "values") {
+                        let val = "NA";
+                        if (finfo[fp]) {
+                            val = finfo[fp];
+                        }
+                        if (val == "-") {
+                            val = "DASH";
+                        } else if (val == ",") {
+                            val = "COMMA";
+                        }
+                        md.push("         " + fp + ": " + val);
+                    }
+                }
+            }
+        }
+    }
+
+    async saveDatabaseFile (dbname: string): boolean {
+        const mdfilename = dbname + ".md";
+        const md = [];
+        md.push("---");
+
+        const dbdata = this.loadedPojoHistory.databases[dbname];
+
+        const dbinfo = this.loadedPojoDB[dbname];
+        this.convertDBInfoToYaml(dbinfo, md);
+
+        for (const key in dbdata) {
+            if (key !== "_database") {
+                md.push(key + ":");
+                const keya = dbdata[key];
+                for (const val of keya) {
+                    md.push("   - " + val);
+                }
+            }
+        }
+        md.push("---");
+        md.push("");
+        md.push("# " + dbname);
+
+        if (dbinfo.params) {
+            md.push("");
+            md.push("## Entries can include the following parameters:");
+            for (const p of dbinfo.params) {
+                md.push("* " + p);
+            }
+        }
+        md.push("")
+        md.push("## Additional Parameters:")
+        md.push("* You may also include @TIME @CLOCK and/or @CLOCKe:");
+        md.push("* Where TIME is a duration (number) in minutes.");
+        md.push("* Where CLOCK is a 24 hour clock time in hours:minutes");
+        md.push("* @CLOCK is the start time and @CLOCKe is the end time.")
+        md.push("* @NUMz (energy) and @NUMj (happiness) on scales where NUM is from 1 to 10.");
+
+        const foldername = generatePath(this.settings.folder_pojo, this.settings.subfolder_databases);
+        await this.createMarkdownFile(md.join("\n"), foldername, mdfilename, true);
+
+        return true;
+    }
+
+    /*
+    async convertHistoryTime (vault: Vault): boolean {
+        console.log("HERE is the convertHistoryTime!", this.loadedPojoHistory);
+        console.log("DB Stuff", this.loadedPojoDB);
+
+        for (const dbname in this.loadedPojoHistory.databases) {
+            await this.saveDatabaseFile(dbname);
+        }
+
+        return true;
+    }
+*/
+
+    async getMarkdownFileInfo (mfile: TFile): object {
+        let content;
+        try {
+            content = await this.vault.read(mfile);
+        } catch (err) {
+            console.error("ERROR reading file ", mfile);
+            console.error(err);
+            return null;
+        }
+
+        let frontmatter = {};
+        try {
+            const filematter = matter(content);
+            frontmatter = filematter.data;
+        } catch (err) {
+            console.error("ERROR in file ", mfile);
+            console.error("ERROR reading file contents ", err);
+            return null;
+        }
+        return frontmatter;
     }
 
     addToHistoryFromLine (line: string): boolean {
@@ -558,10 +698,15 @@ export class PojoHelper {
             const finfo = dbinfo["field-info"];
             const self = this;
             for (const key in finfo) {
-                if (finfo[key].allowed) {
+                if (finfo[key].allowed && finfo[key].allowed !== "NA") {
                     let bHistory = false;
                     let hkey;
-                    const multi = finfo[key].multi;
+                    let multi = finfo[key].multi;
+                    if (multi == "DASH") {
+                        multi = "-";
+                    } else if (multi == "COMMA") {
+                        multi = ","
+                    }
                     console.log("HISTORY for " + key, finfo);
                     if (finfo[key].allowed == "history") {
                         hkey = key;
@@ -596,7 +741,7 @@ export class PojoHelper {
                             for (const val of tobj[key]) {
                                 _addItem(val);
                             }
-                        } else if (multi) {
+                        } else if (multi && multi !== "NA") {
                             const avals = tobj[key].split(multi);
                             for (const val2 of avals) {
                                 _addItem(val2);
@@ -618,6 +763,7 @@ export class PojoHelper {
 
     async saveHistoryChanges (vault: Vault, changes: object[]): boolean {
 
+        const dbchanges = {};
         for (const item of changes) {
 
             const dbname = item.database;
@@ -633,14 +779,18 @@ export class PojoHelper {
                     this.loadedPojoHistory.databases[dbname][hkey] = [];
                 }
                 if (!this.loadedPojoHistory.databases[dbname][hkey].includes(item.value)) {
-                    this.loadedPojoHistory.databases[dbname][hkey].push(item.value);
+                    const val = item.value;
+                    // TODO. Make sure val doesn't include invalid YAML values!!!
+                    this.loadedPojoHistory.databases[dbname][hkey].push(val);
                 }
 
+                dbchanges[dbname] = true;
             }
-
         }
 
-        await this.saveHistory(vault);
+        for (const dbx in dbchanges) {
+            await this.saveDatabaseFile(dbx);
+        }
 
         return true;
     }
@@ -660,10 +810,15 @@ export class PojoHelper {
         const finfo = dbinfo["field-info"];
         const self = this;
         for (const key in finfo) {
-            if (finfo[key].allowed) {
+            if (finfo[key].allowed && finfo[key].allowed !== "NA") {
                 let bHistory = false;
                 let hkey;
-                const multi = finfo[key].multi;
+                let multi = finfo[key].multi;
+                if (multi == "DASH") {
+                    multi = "-";
+                } else if (multi == "COMMA") {
+                    multi = ","
+                }
                 if (finfo[key].allowed == "history") {
                     hkey = key;
                     bHistory = true;
@@ -768,7 +923,7 @@ export class PojoHelper {
 
         this.logError(">>> SAVING TO HISTORY " + this.loadedPojoHistory.numsaves);
 
-        await vault.adapter.write(intoCompletrPath(vault, POJO_HISTORY_FILE), JSON.stringify(this.loadedPojoHistory, null, 3));
+        await vault.adapter.write(pluginPath(vault, POJO_HISTORY_FILE), JSON.stringify(this.loadedPojoHistory, null, 3));
     }
 
     parsePojoLine (tagline: string): object | null {
@@ -980,8 +1135,13 @@ export class PojoHelper {
 
             let locval = pobj._locval;
             if (dinfo["field-info"] && dinfo["field-info"][pobj._loc]) {
-                const multi = dinfo["field-info"][pobj._loc].multi;
-                if (multi) {
+                let multi = dinfo["field-info"][pobj._loc].multi;
+                if (multi == "DASH") {
+                    multi = "-";
+                } else if (multi == "COMMA") {
+                    multi = ","
+                }
+                if (multi && multi !== "NA") {
                     console.log("WE DOING multi " + multi, dinfo, pobj);
                     const avals = locval.split(multi);
                     locval = avals[avals.length - 1].trim();
@@ -1079,7 +1239,7 @@ export class PojoHelper {
             }
             return [...new Set([...values, ...this.getHistoryValues(dinfo, pname)])];
         } else {
-            if (finfo.allowed) {
+            if (finfo.allowed !== "NA") {
                 console.error("ERROR - unknown allowed property: " + finfo.allowed, finfo);
             }
             return [];
