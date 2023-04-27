@@ -41,14 +41,15 @@ export class PojoConvert {
         // We are converting a daily note AGAIN if convertAgain is ture
         // This means the original file has already been archived and we need to redo from that copy!
 
-        console.log("Converting Daily Note ", inputFile);
+        this.pojo.logDebug("Converting Daily Note ", inputFile);
 
         let content = null;
+        let fname = null;
         let contentFile = inputFile;
         try {
             // Get file contents
             if (convertAgain) {
-                const fname = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes, inputFile.name);
+                fname = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes, inputFile.name);
                 contentFile = this.vault.getAbstractFileByPath(fname);
             }
 
@@ -57,7 +58,7 @@ export class PojoConvert {
             this.logError("ERROR on reading file!", err);
             return {
                 "type": "error_reading",
-                "msg": "Error Encountered: " + err.message
+                "msg": "Cannot read note at " + fname + " ( " + err.message + " )"
             }
         }
 
@@ -72,7 +73,7 @@ export class PojoConvert {
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
             if (frontmatter && frontmatter.POJO) {
-                console.log("Already Converted!", frontmatter);
+                this.pojo.logDebug("Already Converted!", frontmatter);
                 return {
                     "type": "noconvert_alreadyconverted",
                     "msg": "This note has already been converted previously."
@@ -88,13 +89,13 @@ export class PojoConvert {
 
             // Check to see IF this is actually a daily note
             if (!parsedcontent) {
-                console.log("NOT a daily note!");
+                this.pojo.logDebug("NOT a daily note!");
                 return {
                     "type": "noconvert_notdailynote",
                     "msg": "This is NOT a POJO compliant daily note."
                 };
             } else if (!parsedcontent[this.defsec] || !parsedcontent[this.defsec][0].Date) {
-                console.log("Some type of markdown note, but NOT a daily note!", parsedcontent);
+                this.pojo.logDebug("Some type of markdown note, but NOT a daily note!", parsedcontent);
                 return {
                     "type": "noconvert_markdownnote",
                     "msg": "This is a markdown note, but not a POJO compliant daily note."
@@ -160,7 +161,7 @@ export class PojoConvert {
             }
 
             if (this.settings.donotcreatefiles) {
-                console.log("NOT creating actual files in Obsidian Vault due to 'donotcreatefiles' option!");
+                this.pojo.logDebug("NOT creating actual files in Obsidian Vault due to 'donotcreatefiles' option!");
                 return "notfinished_nocreatefiles";
             }
 
@@ -171,7 +172,7 @@ export class PojoConvert {
             await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, inputFile.name, true);
 
         } catch (err) {
-            console.error("ERROR caught on markdownexport", err);
+            this.pojo.logError("ERROR caught on markdownexport", err);
             const eobj = {
                 "type": "error_export",
                 "msg": "Error encountered: " + err.message,
@@ -186,7 +187,7 @@ export class PojoConvert {
         // Copy (and convert if HEIC) with any referenced images
         const BSKIPFORNOW = true;
         if (!this.settings.donotcopyattachments && !BSKIPFORNOW) {
-            console.log("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
+            this.pojo.logDebug("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
             const attdir = generatePath(this.settings.export_folder, this.settings.folder_attachments);
             fs.ensureDirSync(attdir);
 
@@ -203,7 +204,7 @@ export class PojoConvert {
                     this.exitNow(errs);
                 }
             }
-            console.log("----------------------------->");
+            this.pojo.logDebug("----------------------------->");
             for (const imgc of imageactions.convert) {
                 try {
                     const inputBuffer = fs.readFileSync(imgc.source);
@@ -222,9 +223,9 @@ export class PojoConvert {
                     this.exitNow(errs);
                 }
             }
-            console.log("FINISHED copy of images to obsidian vault");
+            this.pojo.logDebug("FINISHED copy of images to obsidian vault");
             //        } else {
-            //            console.log("NOTE - attachments not copied due to setting donotcopyattachments being true.")
+            //            this.pojo.logDebug("NOTE - attachments not copied due to setting donotcopyattachments being true.")
         }
 
         return {
@@ -244,39 +245,39 @@ export class PojoConvert {
         this.logDebug("debug", "Number of files to import: " + importFiles.length);
 
         // Start import of list of markdown files
-        console.log("BEGIN import of " + importFiles.length + " markdown files");
+        this.pojo.logDebug("BEGIN import of " + importFiles.length + " markdown files");
         let exportContent;
         try {
             exportContent = this.markdownImportFiles(importFiles);
         } catch (err) {
             this.logError("ERROR on markdownImport!", err);
         }
-        console.log("FINISHED import of " + importFiles.length + " markdown files");
+        this.pojo.logDebug("FINISHED import of " + importFiles.length + " markdown files");
 
 
         this.logDebug("exported", "FOUND FOR EXPORT", exportContent);
 
         const nrecords = Object.keys(exportContent.diary).length;
-        console.log("BEGIN export of " + nrecords + " content entries to obsidian vault");
+        this.pojo.logDebug("BEGIN export of " + nrecords + " content entries to obsidian vault");
         try {
             this.markdownExport(exportContent);
         } catch (err) {
             this.exitNow(["ERROR caught on markdownexport " + err.message]);
         }
-        console.log("FINISHED export of content to obsidian vault");
+        this.pojo.logDebug("FINISHED export of content to obsidian vault");
 
-        console.log("CREATE MOC Files based on tracking.json contents");
+        this.pojo.logDebug("CREATE MOC Files based on tracking.json contents");
         try {
             this.createMOCFiles(true);
         } catch (err) {
-            console.error("Error creating MOC Files!", err);
+            this.pojo.logError("Error creating MOC Files!", err);
         }
-        console.log("FINISHED creating MOC files.");
+        this.pojo.logDebug("FINISHED creating MOC files.");
 
 
         // Copy (and convert if HEIC) with any referenced images
         if (!this.settings.donotcopyattachments) {
-            console.log("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
+            this.pojo.logDebug("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
             const attdir = generatePath(this.settings.export_folder, this.settings.folder_attachments);
             fs.ensureDirSync(attdir);
 
@@ -293,7 +294,7 @@ export class PojoConvert {
                     this.exitNow(errs);
                 }
             }
-            console.log("----------------------------->");
+            this.pojo.logDebug("----------------------------->");
             for (const imgc of imageactions.convert) {
                 try {
                     const inputBuffer = fs.readFileSync(imgc.source);
@@ -312,12 +313,12 @@ export class PojoConvert {
                     this.exitNow(errs);
                 }
             }
-            console.log("FINISHED copy of images to obsidian vault");
+            this.pojo.logDebug("FINISHED copy of images to obsidian vault");
         } else {
-            console.log("NOTE - attachments not copied due to setting donotcopyattachments being true.")
+            this.pojo.logDebug("NOTE - attachments not copied due to setting donotcopyattachments being true.")
         }
 
-        console.log("EXITING NOW!!!");
+        this.pojo.logDebug("EXITING NOW!!!");
 
         this.exitNow([], true);
     }
@@ -377,13 +378,13 @@ export class PojoConvert {
             const rval = this.parseAST(child);
             if (!rval) {
                 // ERROR
-                console.error("parseAST error encountered. Continuing...", child);
+                this.pojo.logError("parseAST error encountered. Continuing...", child);
                 continue;
             }
             this.logDebug("debug", rval.key, rval.values);
             if (!this.parseItem(parsed, rval.key, rval.values)) {
                 // ERROR
-                console.error("parseItem error encoutered. Continuing...", rval);
+                this.pojo.logError("parseItem error encoutered. Continuing...", rval);
                 continue;
             }
         }
@@ -485,7 +486,7 @@ export class PojoConvert {
 
     private checkMultiValued (db: string, key: string, context: string): boolean {
 
-        //        console.log("HERE IS check multi values called from " + context, db, key);
+        //        this.pojo.logDebug("HERE IS check multi values called from " + context, db, key);
         if (db == this.defsec) {
             return false;
         }
@@ -503,14 +504,14 @@ export class PojoConvert {
     private parseLine (parsed: object, key: string, line: string): boolean {
 
         const self = this;
-        console.log("parseLine " + key, line);
+        this.pojo.logDebug("parseLine " + key, line);
 
         const _addParsed = function (info) {
 
             // Check parsed info for any tags and process according to the metameta settings!
             self.pojo.extractMetaMeta(info);
 
-            //            console.log("_addParsed", info);
+            //            this.pojo.logDebug("_addParsed", info);
             const dbref = info._database;
             if (!parsed[dbref]) { parsed[dbref] = []; }
             if (dbref == self.defsec) {
@@ -534,7 +535,7 @@ export class PojoConvert {
         if (key == "H1") {
             // Check if this is a date!
             const date = new Date(line);
-            console.log("CONVERT " + line + " to date:", date)
+            this.pojo.logDebug("CONVERT " + line + " to date:", date)
             if (!date || (date instanceof Date && isNaN(date.valueOf()))) {
                 // See if it is an ISO Date
                 parsed[this.defsec][0].ISODave = line;
@@ -544,10 +545,10 @@ export class PojoConvert {
             }
             if (!parsed[this.defsec][0].Date) {
                 // Error
-                console.log("POSSIBLY NOT A DATE " + line)
+                this.pojo.logDebug("POSSIBLY NOT A DATE " + line)
                 return false;
             } else {
-                console.log("HERE BE THE DATE " + parsed[this.defsec][0].Date);
+                this.pojo.logDebug("HERE BE THE DATE " + parsed[this.defsec][0].Date);
             }
         } else if (key == "H2") {
             // Title on Daily Entry
@@ -581,7 +582,7 @@ export class PojoConvert {
             parsed[this.currentdb][this.currentidx].Description.push("* " + line);
         } else if (key == "H3" || line.charAt(0) == '#') {
 
-            //            console.log("HERE IS PARSED " + this.defsec, parsed);
+            //            this.pojo.logDebug("HERE IS PARSED " + this.defsec, parsed);
             if (!parsed[this.defsec][0].Date) {
                 parsed[this.defsec][0].Date = this.getDateFromFile();
             }
@@ -595,10 +596,10 @@ export class PojoConvert {
                 // ERROR
                 return false;
             }
-            console.log("Parsed Line Object", pinfo);
+            this.pojo.logDebug("Parsed Line Object", pinfo);
             const db = pinfo._database;
             _addParsed(pinfo);
-            //            console.log("HERE is parsed and db " + db, parsed);
+            //            this.pojo.logDebug("HERE is parsed and db " + db, parsed);
             this.logDebug("parse1", "TAG PARSE with length " + parsed[db].length, pinfo);
             //        if (key == "H3") {
             this.currentdb = db;
@@ -632,8 +633,8 @@ export class PojoConvert {
                 }
 
             } else {
-                //            console.log("HERE IS key " + key, lastdb, currentfile);
-                //            console.log(parsed[lastdb]);
+                //            this.pojo.logDebug("HERE IS key " + key, lastdb, currentfile);
+                //            this.pojo.logDebug(parsed[lastdb]);
                 // CodeBlock is normally used as an alternative way to add Description content to a section. 
                 //            if (key == "CodeBlock" && lastdb && parsed[lastdb]) {
                 //                if (!parsed[lastdb][lastidx].Description) { parsed[lastdb][lastidx].Description = []; }
@@ -748,7 +749,7 @@ export class PojoConvert {
             // Create a database MOC
             _createMOC(dbname, "database", dbname);
 
-            //        console.log("DBE for " + dbname, dbe);
+            //        this.pojo.logDebug("DBE for " + dbname, dbe);
             for (const param in dbe) {
                 const pvs = dbe[param];
                 _createMOC(param, "param", dbname, param)
@@ -801,7 +802,7 @@ export class PojoConvert {
                 for (const p in item) {
                     if (_checkKey(p)) {
                         // Check if multi valued.
-                        console.log("Check multi value for database " + db, p, item[p]);
+                        this.pojo.logDebug("Check multi value for database " + db, p, item[p]);
                         if (this.checkMultiValued(db, p, "addFrontMatterforDatabase")) {
                             const av = item[p].split(",");
                             for (const a of av) {
@@ -845,7 +846,7 @@ export class PojoConvert {
                     if (p == dbinfo.type || p == dbinfo.params[0]) {
                         bKeyItems = true;
                     }
-                    //                console.log(`Key: ${p} Value: ${value} ` + bKeyItems);
+                    //                this.pojo.logDebug(`Key: ${p} Value: ${value} ` + bKeyItems);
                     if (bKeyItems || this.settings.params_multi.includes(p)) {
                         if (!bKeyItems) {
                             _addFootLink(p);
@@ -866,58 +867,55 @@ export class PojoConvert {
         return footlinks.length - nentry;
     }
 
-    private addCalloutSections (md: string[], sections: object) {
+    private addCalloutSection (md: string[], database: string, section: object) {
 
-        console.log("ZZZZ HERE ARE THE SECTIONS", sections);
+        this.pojo.logDebug("ZZZZ HERE is THE SECTION for " + database, section);
 
         // Sections (using callouts!)
         try {
-            for (const header in sections) {
-                const section = sections[header];
-                const callout = section.callout;
-                const database = section.database;
-                const content = section.content;
-                const dbinfo = this.pojo.getDatabaseInfo(section.database);
+            const callout = section.callout;
+            database = section.database;
+            const content = section.content;
+            const dbinfo = this.pojo.getDatabaseInfo(database);
 
-                md.push(`> [!${callout}]+ [[${database}]]`);
-                console.log("HERE IS DA contnetet for " + database, content);
-                for (const type in content) {
-                    const item = content[type];
-                    let hline;
-                    hline = `> `;
-                    hline += `**[[${type}]]**`;
+            md.push(`> [!${callout}]+ [[${database}]]`);
+            this.pojo.logDebug("HERE IS DA contnetet for " + database, content);
+            for (const type in content) {
+                const item = content[type];
+                let hline;
+                hline = `> `;
+                hline += `**[[${type}]]**`;
 
-                    if (item.values && item.values.length > 0) {
-                        for (const oentry of item.values) {
-                            // Make any mocparams links
-                            if (oentry.mocparams) {
-                                for (const mp of oentry.mocparams) {
-                                    hline += ` **[[${mp}]]**`;
-                                }
+                if (item.values && item.values.length > 0) {
+                    for (const oentry of item.values) {
+                        // Make any mocparams links
+                        if (oentry.mocparams) {
+                            for (const mp of oentry.mocparams) {
+                                hline += ` **[[${mp}]]**`;
                             }
-                            if (oentry.params) {
-                                for (const p of oentry.params) {
-                                    hline += `  ${p}`;
-                                }
-                            }
-                            md.push(hline);
-                            hline = `> `;
-                            if (oentry.description) {
-                                for (const line of oentry.description) {
-                                    md.push(`> ${line}`);
-                                    md.push("> ");
-                                }
-                            }
-
                         }
-                    } else {
+                        if (oentry.params) {
+                            for (const p of oentry.params) {
+                                hline += `  ${p}`;
+                            }
+                        }
                         md.push(hline);
+                        hline = `> `;
+                        if (oentry.description) {
+                            for (const line of oentry.description) {
+                                md.push(`> ${line}`);
+                                md.push("> ");
+                            }
+                        }
+
                     }
+                } else {
+                    md.push(hline);
                 }
-                md.push("");
             }
+            md.push("");
         } catch (err) {
-            this.logError("ERROR output of sections ", err);
+            this.logError("ERROR output of section ", err);
             return false;
         }
         return true;
@@ -975,7 +973,16 @@ export class PojoConvert {
         }
 
         // Add all the callout sections.
-        this.addCalloutSections(md, sections);
+        console.log("HERE are sections", sections);
+        // Add Photo Section first.
+        if (sections.Photo) {
+            this.addCalloutSection(md, "Photo", sections.Photo);
+        }
+        for (const dbname in sections) {
+            if (dbname !== "Photo") {
+                this.addCalloutSection(md, dbname, sections[dbname]);
+            }
+        }
         md.push("");
 
         // Add Foot Links (using Callout)
@@ -1068,13 +1075,13 @@ export class PojoConvert {
             let newval = null;
             for (const param of content["_params"]) {
                 const paramval = content[param];
-                console.log("addMarkdownCallout with " + param, paramval);
+                this.pojo.logDebug("addMarkdownCallout with " + param, paramval);
                 if (paramval) {
                     if (!newval) { newval = {}; }
                     if (param !== "Description") {
                         const mocname = this.pojo.getFieldMOCName(dbinfo, type, param, paramval);
                         if (mocname) {
-                            console.log("MOC for " + type + " " + param + "-> " + mocname);
+                            this.pojo.logDebug("MOC for " + type + " " + param + "-> " + mocname);
                             if (!newval.mocparams) { newval.mocparams = []; }
                             newval.mocparams = _addValue(mocname, newval.mocparams);
                         } else {
@@ -1092,7 +1099,7 @@ export class PojoConvert {
             if (newval) { values.push(newval); }
         }
 
-        console.log("DA SECTION " + db, section);
+        this.pojo.logDebug("DA SECTION " + db, section);
     }
 
     private createNewRecords (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {
@@ -1137,7 +1144,7 @@ export class PojoConvert {
                 if (dbentry[sr[0]]) {
                     // NOTE we only do this for ONE entry of this database type.
                     const dbe = dbentry[sr[0]][0];
-                    //                    console.log("DATABASE ENTRY", dbe);
+                    //                    this.pojo.logDebug("DATABASE ENTRY", dbe);
                     const source = dbe[sr[1]];
                     const action = af[1];
                     if (action == 'Date') {
@@ -1159,7 +1166,7 @@ export class PojoConvert {
                             const ad = source.split(" ");
                             newDate = new Date(ad[0] + " 12:00");
                         }
-                        //                        console.log("HERE IS newDate from " + source, newDate);
+                        //                        this.pojo.logDebug("HERE IS newDate from " + source, newDate);
                         const obsidianDate = newDate.toISOString().split('T')[0];
                         frontmatter[af[2]] = obsidianDate;
                         if (this.settings.frontmatter_dateplus) {
@@ -1283,7 +1290,7 @@ export class PojoConvert {
                 case "n": month = "11"; break;
                 case "d": month = "12"; break;
                 default:
-                    console.error("ERROR on month!!! ISODave1 " + mn + " ->" + ddate);
+                    this.pojo.logError("ERROR on month!!! ISODave1 " + mn + " ->" + ddate);
                     this.logError("ERROR on H1 as date " + mn, dddate);
                     return null;
             }
@@ -1299,8 +1306,8 @@ export class PojoConvert {
                 dayom = "0" + dom;
             }
 
-            //		console.log("Dave Date 1.0: " + ddate);
-            //		console.log(yr + "/" + month + "/" + dayom);
+            //		this.pojo.logDebug("Dave Date 1.0: " + ddate);
+            //		this.pojo.logDebug(yr + "/" + month + "/" + dayom);
 
             return yr + "-" + month + "-" + dayom;
         }
@@ -1323,7 +1330,7 @@ export class PojoConvert {
                 case "nv": month = "11"; break;
                 case "de": month = "12"; break;
                 default:
-                    console.error("ERROR on month!!! ISODave2 " + mn + " ->" + ddate);
+                    this.pojo.logError("ERROR on month!!! ISODave2 " + mn + " ->" + ddate);
                     this.logError("ERROR on H1 as date " + mn, dddate);
                     return null;
             }
@@ -1341,8 +1348,8 @@ export class PojoConvert {
 
             const dow = ddate.charAt(ddate.length - 1);
 
-            //		console.log("Dave Date 2.0: " + ddate);
-            //		console.log(yr + "/" + month + "/" + dayom);
+            //		this.pojo.logDebug("Dave Date 2.0: " + ddate);
+            //		this.pojo.logDebug(yr + "/" + month + "/" + dayom);
 
             return yr + "-" + month + "-" + dayom;
         }
@@ -1357,7 +1364,7 @@ export class PojoConvert {
     private async writeOutMetadataRecords (newrecords: object[]) {
 
         const self = this;
-        console.log("writeOutMetadataRecords here...", newrecords);
+        this.pojo.logDebug("writeOutMetadataRecords here...", newrecords);
         let rcount;
 
 
@@ -1418,7 +1425,7 @@ export class PojoConvert {
     }
 
     private getDateFromFile (): string {
-        //        console.log("HERE IS THE currentfile", this.currentfile);
+        //        this.pojo.logDebug("HERE IS THE currentfile", this.currentfile);
         const basename = this.currentfile.basename;
         return basename;
     }
@@ -1432,8 +1439,8 @@ export class PojoConvert {
 
     private trackingInfo (parsed, db, robj): object {
 
-        console.log("Called trackingInfo!", parsed, db, robj);
-        console.log("NOT IMPLEMENTED FOR NOW");
+        this.pojo.logDebug("Called trackingInfo!", parsed, db, robj);
+        this.pojo.logDebug("NOT IMPLEMENTED FOR NOW");
         const bSkip = true;
         if (bSkip) {
             return;
@@ -1458,11 +1465,11 @@ export class PojoConvert {
                 }
             }
         }
-        //    console.log("ADDING TRACKING FOR " + parsed[this.defsec][0].Date, this.memoizeTracking);
+        //    this.pojo.logDebug("ADDING TRACKING FOR " + parsed[this.defsec][0].Date, this.memoizeTracking);
 
         const _checkIfExistsAlready = function (valsNow, valsNew, key) {
-            //        console.log('KEY is ' + key, valsNow, valsNew);
-            //        console.log("INPUT OBJ ", robj);
+            //        this.pojo.logDebug('KEY is ' + key, valsNow, valsNew);
+            //        this.pojo.logDebug("INPUT OBJ ", robj);
             // Check if we encountered this before in this import
             // Check if we encountered this before in previous imports
             let pos = 0;
@@ -1470,7 +1477,7 @@ export class PojoConvert {
                 const ka = k.split("=");
                 let count = parseInt(ka[1], 10);
                 if (isNaN(count)) {
-                    console.error("ERROR ERROR on number", valsNow);
+                    this.pojo.logError("ERROR ERROR on number", valsNow);
                 }
                 if (ka[0] == key) {
                     count++;
@@ -1482,12 +1489,12 @@ export class PojoConvert {
             pos = 0;
             for (const k of valsNew) {
                 if (!k) {
-                    console.log("BAD NEWS on newStuff!", valsNew);
+                    this.pojo.logDebug("BAD NEWS on newStuff!", valsNew);
                 }
                 const ka = k.split("=");
                 let count = parseInt(ka[1], 10);
                 if (isNaN(count)) {
-                    console.error("ERROR ERROR on number", valsNew);
+                    this.pojo.logError("ERROR ERROR on number", valsNew);
                 }
                 if (ka[0] == key) {
                     count++;
@@ -1498,7 +1505,7 @@ export class PojoConvert {
             }
 
 
-            //        console.log("HERE NEW ITEM for key " + key + " -> " );
+            //        this.pojo.logDebug("HERE NEW ITEM for key " + key + " -> " );
 
             return { exists: 0, index: 0, newval: key + "=1" };
         }

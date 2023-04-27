@@ -1,7 +1,6 @@
 import { PojoSettings, generatePath, pluginPath } from "./settings";
 import { Suggestion } from "./provider/provider";
-import { Vault, Platform, TFile, TFolder } from "obsidian";
-import matter from 'gray-matter';
+import { Vault, Platform, TFile, TFolder, App } from "obsidian";
 
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
 const POJO_H3_PREFIX_REGEX = /^### /;
@@ -17,17 +16,21 @@ export class PojoHelper {
     private nohistoryx: boolean;
     private defsec: string;
     private vault: Vault;
+    private app: App;
     private metaunits: object;
     private metatimes: object;
     private logs: object;
+    private debugging: boolean;
 
-    constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault) {
+    constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault, app: App) {
         this.pojoProvider = pojoProvider;
         this.settings = pojosettings;
         this.nohistoryx = false;
         this.defsec = this.settings.daily_entry_h3[0];
         this.vault = vault;
+        this.app = app;
         this.logs = {};
+        this.debugging = false;
 
         this.metaunits = {};
         this.metatimes = {};
@@ -59,20 +62,19 @@ export class PojoHelper {
 
         // First check if folder exists in vault.
         if (!(await this.vault.adapter.exists(folder))) {
-            console.log("Folder " + folder + " must be created.");
+            this.logDebug("Folder " + folder + " must be created.");
             await this.vault.adapter.mkdir(folder);
         }
 
         const filepath = generatePath(folder, filename);
         if (await this.vault.adapter.exists(filepath)) {
-            console.error("FILE ALREADY EXISTS! " + filepath);
             if (bOverwrite) {
                 await this.vault.adapter.write(filepath, data);
-                console.log("OOO -> OVERRWORTE file " + filepath);
+                this.logDebug("OOO -> OVERRWORTE file " + filepath);
             }
         } else {
             await this.vault.create(filepath, data);
-            console.log("CCC -> Created file " + filepath);
+            this.logDebug("CCC -> Created file " + filepath);
         }
 
     }
@@ -80,7 +82,7 @@ export class PojoHelper {
     pojoConversion ()
 
     getLogs () {
-        console.log("HELPER LOGS", this.logs);
+        this.logDebug("HELPER LOGS", this.logs);
         return this.logs;
     }
 
@@ -96,21 +98,47 @@ export class PojoHelper {
 
     async pojoLogs (category: string, errs: string[], dobj?: object, bend?: boolean) {
 
-        if (category == "errors") {
-            for (const eem of errs) {
+        if (this.debugging) { console.log(">>> LOG POJO START"); }
+        for (const eem of errs) {
+            if (category == "errors") {
                 console.error(eem);
+            } else if (this.debugging) {
+                console.log(eem);
             }
-            if (dobj) {
+        }
+        if (dobj) {
+            if (category == "errors") {
                 console.error(dobj);
+            } else if (this.debugging) {
+                console.log(dobj);
             }
+        }
+        if (this.debugging) { console.log("LOG POJO END <<<"); }
+
+        if (!this.debugging && category !== "errors") {
+            return;
         }
 
         if (!this.logs[category]) { this.logs[category] = []; }
-        for (const err of errs) {
-            this.logs[category].push(err);
+        let pref = "[[ ";
+        let suffix = "";
+        for (let n = 0; n < errs.length; n++) {
+            if (n == 0) {
+                pref = "[[ ";
+            } else if (n == errs.length && !dobj) {
+                pref = " ]]";
+            } else {
+                pref = ""
+            }
+            if (errs.length == 1) {
+                suffix = " ]]";
+            }
+            this.logs[category].push(pref + errs[n] + suffix);
         }
+
         if (dobj) {
             this.logs[category].push(JSON.stringify(dobj, null, 3));
+            this.logs[category].push(" ]]");
         }
 
         if (bend) {
@@ -118,8 +146,16 @@ export class PojoHelper {
         }
     }
 
-    logDebug (category: string, msg: string, dobj?: object) {
-        this.pojoLogs("debug-" + category, [msg], dobj);
+    logDebug (category: string, obj?: string | object, dobj?: object) {
+        const msgs = [category];
+        if (obj) {
+            if (typeof obj === 'string') {
+                msgs.push(obj);
+            } else {
+                dobj = obj;
+            }
+        }
+        this.pojoLogs("debug", msgs, dobj);
     }
 
     logError (msg: string, dobj?: object) {
@@ -153,22 +189,13 @@ export class PojoHelper {
         return this.loadedPojoHistory;
     }
 
-    getHistoryVersion () {
-        if (this.loadedPojoHistory) {
-            console.log("HERE is the pojo version history", this.loadedPojoHistory);
-            return this.loadedPojoHistory.version + " (" + this.loadedPojoHistory.numsaves + ") ";
-        } else {
-            return "Not Available";
-        }
-    }
+    async InitDatabases () {
 
-    async initFromPojoFolder () {
-        console.log("HERE is settings eh?", this.settings);
         const dbpath = generatePath(this.settings.folder_pojo, this.settings.subfolder_databases);
         const dbfolder = this.vault.getAbstractFileByPath(dbpath) as TFolder;
-        console.log("initDB stuff for " + dbpath, dbfolder);
+        this.logDebug("initDB stuff for " + dbpath + " !!!", dbfolder);
         if (!dbfolder) {
-            console.error("ERROR - database folder is NOT FOUND!", dbpath);
+            this.logError("ERROR - database folder is NOT FOUND!", dbpath);
             return false;
         }
 
@@ -179,11 +206,15 @@ export class PojoHelper {
         };
         const dbkeys = [];
 
+        this.logDebug("Get contents of databases folder " + dbpath);
+
         if (dbfolder && dbfolder.children) {
             for (const fobj of dbfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
+                this.logDebug("Get Markdown Info", fname.path);
                 const fm = await this.getMarkdownFileInfo(fname);
                 if (fm) {
+                    this.logDebug("FMINFO ", fm);
                     const dbname = fm._database.database;
                     dbkeys.push(dbname);
                     pojoDB[dbname] = fm._database;
@@ -191,25 +222,22 @@ export class PojoHelper {
                 }
             }
         } else {
+            this.logError("ERROR on dbfolder eh?");
             return false;
         }
 
         this.loadedPojoDB = pojoDB;
         this.loadedPojoHistory = pojoHistory;
 
-        console.log("POJO DB NEW", pojoDB);
-        //        console.log("POJO DB OLD", this.loadedPojoDB);
+        this.logDebug("POJO DB NEW", pojoDB);
+        //        this.logDebug("POJO DB OLD", this.loadedPojoDB);
 
-        console.log("POJO HISTORY NEW", pojoHistory);
-        //      console.log("POJO HISTORY OLD", this.loadedPojoHistory);
+        this.logDebug("POJO HISTORY NEW", pojoHistory);
+        //      this.logDebug("POJO HISTORY OLD", this.loadedPojoHistory);
 
         this.pojoDatabases = dbkeys;
 
         return true;
-    }
-
-    async InitDatabases () {
-        return await this.initFromPojoFolder();
     }
 
     getDatabases (): string[] {
@@ -218,7 +246,7 @@ export class PojoHelper {
 
     displayMetaMeta (pname, pvalue) {
 
-        console.log("displayMetaMeta:" + pname + ":" + pvalue + ":", this.settings.metameta);
+        this.logDebug("displayMetaMeta:" + pname + ":" + pvalue + ":", this.settings.metameta);
 
         if (!this.settings.metameta || !this.settings.metameta[pname]) {
             return pvalue;
@@ -277,8 +305,8 @@ export class PojoHelper {
             return false;
         }
 
-        console.log("extrctMetaMeta metaunits", this.metaunits);
-        console.log("HERE is record to add meta", record);
+        this.logDebug("extrctMetaMeta metaunits", this.metaunits);
+        this.logDebug("HERE is record to add meta", record);
 
         for (const tag of record._tags) {
             let num = parseFloat(tag);
@@ -296,12 +324,12 @@ export class PojoHelper {
                 fieldi = this.metaunits[unit];
             }
 
-            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
+            this.logDebug("here is fieldi for " + tag + " and unit " + unit, fieldi);
             type = fieldi.type;
 
             if (isNaN(num)) {
                 // ERROR!
-                console.error("ERROR in _tags value " + tag);
+                this.logError("ERROR in _tags value " + tag);
             } else {
                 if (fieldi.type == "duration") {
                     if (unit == "h" || unit == "hr") {
@@ -340,7 +368,7 @@ export class PojoHelper {
             }
         }
 
-        console.log("ADDED meta", record);
+        this.logDebug("ADDED meta", record);
 
         return true;
     }
@@ -350,18 +378,13 @@ export class PojoHelper {
 
         // moc is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
         const mocref = dbinfo["field-info"][fieldname].mocref;
-        let multi = dbinfo["field-info"][fieldname].multi;
-        if (multi == "DASH") {
-            multi = "-";
-        } else if (multi == "COMMA") {
-            multi = ","
-        }
+        const multi = dbinfo["field-info"][fieldname].multi;
 
         if (!mocref) {
             return null;
         }
 
-        console.log("MOSC TIMES " + fieldname + " mocref " + mocref, fieldvalues);
+        this.logDebug("MOSC TIMES " + fieldname + " mocref " + mocref, fieldvalues);
 
         let retarray = null;
         if (mocref == "moc") {
@@ -370,7 +393,7 @@ export class PojoHelper {
                 if (Array.isArray(fieldvalues)) {
                     retarray = fieldvalues;
                 } else {
-                    const a1 = fieldvalues.split(multi);
+                    const a1 = this.splitParam(multi, fieldvalues);
                     for (const v1 of a1) {
                         retarray.push(v1);
                     }
@@ -385,7 +408,7 @@ export class PojoHelper {
                 if (Array.isArray(fieldvalues)) {
                     a2 = fieldvalues;
                 } else {
-                    a2 = fieldvalues.split(multi);
+                    a2 = this.splitParam(multi, fieldvalues);
                 }
                 for (const v2 of a2) {
                     retarray.push(type + " " + v2);
@@ -395,12 +418,12 @@ export class PojoHelper {
             }
         } else {
             if (mocref !== "NA") {
-                console.error("UNKNOWN mocref value " + mocref, fieldname, dbinfo);
+                this.logError("UNKNOWN mocref value " + mocref, fieldname, dbinfo);
             }
         }
 
 
-        console.log("MOSC returns", retarray);
+        this.logDebug("MOSC returns", retarray);
         return retarray;
     }
 
@@ -412,8 +435,8 @@ export class PojoHelper {
 
         const dbinfo = this.loadedPojoDB[dbname];
         if (!dbinfo) {
-            console.error("ERROR missing database info in pojo settings", dbname);
-            console.error("dbinfo is ", this.loadedPojoDB);
+            this.logError("ERROR missing database info in pojo settings", dbname);
+            this.logError("dbinfo is ", this.loadedPojoDB);
             return null;
         }
         return dbinfo;
@@ -432,117 +455,6 @@ export class PojoHelper {
         }
 
         return line.slice(start).trimStart();
-    }
-
-    parseTagLineDEPRECATED (tagline: string): object {
-
-        // Tags do not have spaces in the reference except for Daily Entry
-        if (tagline == "Daily Entry") {
-            return {
-                canonical: "Daily Entry",
-                database: "Daily Entry"
-            }
-        }
-
-        const taga = tagline.split(" ");
-
-        const rtag = this.normalizeReference(taga[0]);
-
-        const dbinfo = this.getDatabaseInfo(rtag.database);
-        if (!dbinfo) {
-            // ERROR
-            return null;
-        }
-        const robj = {
-            database: rtag.database,
-            canonical: rtag.nref
-        }
-        robj[dbinfo.type] = rtag.type;
-
-        const finfo = dbinfo["field-info"];
-
-        if (finfo) {
-            // Check if the type is limited to a set of allowed values
-            const tinfo = finfo[dbinfo.type];
-            if (tinfo && tinfo.allowed && tinfo.allowed == "fixed" && tinfo.values) {
-                const vals = tinfo.values["_ALL"];
-                const allowed = vals.find(el => el.toLowerCase() == rtag.type.toLowerCase());
-                if (!allowed) {
-                    const emsg = "INVALID type value for database " + rtag.database + " ref " + rtag.nref;
-                    this.logError(emsg, rtag);
-                } else {
-                    robj[dbinfo.type] = allowed;
-                }
-            }
-
-            if (taga.length > 1) {
-                taga.shift();
-                const params = taga.join(" ");
-                const aparams = params.split(";")
-
-                if (aparams) {
-                    let n = 0;
-                    if (aparams.length > dbinfo.params.length) {
-                        this.logError("ERROR in tag params. More than expected for tag ", aparams);
-                        return null;
-                    } else {
-                        for (let p of aparams) {
-                            if (p) {
-                                p = p.trim();
-                                const pkey = dbinfo.params[n];
-                                if (pkey == "Description") {
-                                    if (!robj.Description) { robj.Description = []; }
-                                    robj.Description.push(p.trim());
-                                } else {
-                                    if (finfo[pkey]) {
-                                        // Check if this is limited to a fixed set of allowed values
-                                        if (finfo[pkey].allowed == "fixed" && finfo[pkey].values) {
-                                            if (finfo[pkey].values["_ALL"] || finfo[pkey].values[robj[dbinfo.type]]) {
-                                                const alla = finfo[pkey].values["_ALL"] ? finfo[pkey].values["_ALL"] : finfo[pkey].values[robj[dbinfo.type]];
-                                                const allowedp = alla.find(el => {
-                                                    if (el.toLowerCase() == p.toLowerCase()) {
-                                                        return true;
-                                                    }
-                                                    return false;
-                                                });
-                                                if (!allowedp) {
-                                                    const emsg = "INVALID parameter value for database " + rtag.database + " ref " + rtag.nref + " pvalue : " + p;
-                                                    this.logError(emsg, alla);
-                                                } else {
-                                                    p = allowedp;
-                                                }
-                                            }
-                                        }
-                                        if (finfo[pkey].multi && finfo[pkey] !== "NA") {
-                                            const splitchar = finfo[pkey].multi;
-                                            const va = p.split(splitchar);
-                                            for (let i = 0; i < va.length; i++) {
-                                                va[i] = this.normalizeValue(va[i]);
-                                            }
-                                            //                                            robj[pkey] = va.join(splitchar);
-                                            robj[pkey] = va;
-                                        } else {
-                                            robj[pkey] = this.normalizeValue(p);
-                                        }
-                                    }
-                                }
-                            }
-                            n++;
-                        }
-                    }
-                }
-
-                // Check to see if missing params for this database entry and indicate that
-                //        for (let pm of dbinfo.params) {
-                //            if (pm !== "Description") {
-                //               if (!robj[pm]) { robj[pm] = "_NONE_"; }
-                //            }
-                //        }
-
-            }
-        }
-
-        return robj;
     }
 
     convertDBInfoToYaml (dbinfo: object, md: string[],) {
@@ -592,14 +504,17 @@ export class PojoHelper {
         const dbdata = this.loadedPojoHistory.databases[dbname];
 
         const dbinfo = this.loadedPojoDB[dbname];
+        this.logDebug("Saving DB File " + dbname, dbdata, dbinfo);
         this.convertDBInfoToYaml(dbinfo, md);
 
         for (const key in dbdata) {
             if (key !== "_database") {
                 md.push(key + ":");
                 const keya = dbdata[key];
-                for (const val of keya) {
-                    md.push("   - " + val);
+                if (keya) {
+                    for (const val of keya) {
+                        md.push("   - " + val);
+                    }
                 }
             }
         }
@@ -630,8 +545,8 @@ export class PojoHelper {
 
     /*
     async convertHistoryTime (vault: Vault): boolean {
-        console.log("HERE is the convertHistoryTime!", this.loadedPojoHistory);
-        console.log("DB Stuff", this.loadedPojoDB);
+        this.logDebug("HERE is the convertHistoryTime!", this.loadedPojoHistory);
+        this.logDebug("DB Stuff", this.loadedPojoDB);
 
         for (const dbname in this.loadedPojoHistory.databases) {
             await this.saveDatabaseFile(dbname);
@@ -641,23 +556,26 @@ export class PojoHelper {
     }
 */
 
-    async getMarkdownFileInfo (mfile: TFile): object {
-        let content;
-        try {
-            content = await this.vault.read(mfile);
-        } catch (err) {
-            console.error("ERROR reading file ", mfile);
-            console.error(err);
-            return null;
-        }
+    async getMarkdownFileInfo (mfile: TFile): object | null {
+        /*        let content;
+                try {
+                    content = await this.vault.read(mfile);
+                } catch (err) {
+                    this.logError("ERROR reading file ", mfile.path);
+                    this.logError("Error", err);
+                    return null;
+                }
+        */
 
         let frontmatter = {};
         try {
-            const filematter = matter(content);
-            frontmatter = filematter.data;
+
+            frontmatter = this.app.metadataCache.getFileCache(mfile)?.frontmatter;
+            //            const filematter = matter(content);
+            //            frontmatter = filematter.data;
         } catch (err) {
-            console.error("ERROR in file ", mfile);
-            console.error("ERROR reading file contents ", err);
+            this.logError("ERROR extracting frontmatter " + mfile.path);
+            this.logError("ERROR reading file contents ", err);
             return null;
         }
         return frontmatter;
@@ -669,11 +587,17 @@ export class PojoHelper {
         }
 
         line = this.stripLeading(line);
-        console.log("HISTORY -------------------------------------------");
-        console.log(`>>${line}<<`);
-        const tobj: object = this.parsePojoLine(line);
+        this.logDebug("HISTORY -------------------------------------------");
+        this.logDebug(`>>${line}<<`);
+        let tobj;
+        try {
+            tobj = this.parsePojoLine(line);
+        } catch (err) {
+            this.logError("ERROR parsing pojo line", err);
+        }
+        this.logDebug("parsePojoLine on " + line, tobj);
         if (!tobj) { return false; }
-        console.log("parsePojoLinen TOBJ", tobj);
+
         return this.addToHistory(tobj);
     }
 
@@ -681,9 +605,9 @@ export class PojoHelper {
 
         const dbname = tobj._database;
         const dbinfo = this.getDatabaseInfo(dbname);
-        console.log("addToHistory", tobj, dbinfo);
+        this.logDebug("addToHistory", tobj, dbinfo);
         if (!dbinfo) {
-            console.error("ERROR getting database info for " + dbname);
+            this.logError("ERROR getting database info for " + dbname);
             return null;
         }
 
@@ -694,20 +618,15 @@ export class PojoHelper {
                 this.loadedPojoHistory.databases[dbname] = {};
             }
 
-            //            console.log("DA HISTORY", this.loadedPojoHistory);
+            //            this.logDebug("DA HISTORY", this.loadedPojoHistory);
             const finfo = dbinfo["field-info"];
             const self = this;
             for (const key in finfo) {
                 if (finfo[key].allowed && finfo[key].allowed !== "NA") {
                     let bHistory = false;
                     let hkey;
-                    let multi = finfo[key].multi;
-                    if (multi == "DASH") {
-                        multi = "-";
-                    } else if (multi == "COMMA") {
-                        multi = ","
-                    }
-                    console.log("HISTORY for " + key, finfo);
+                    const multi = finfo[key].multi;
+                    this.logDebug("HISTORY for " + key, finfo);
                     if (finfo[key].allowed == "history") {
                         hkey = key;
                         bHistory = true;
@@ -727,10 +646,10 @@ export class PojoHelper {
 
                         const _addItem = function (ival) {
                             if (!ival) { return; }
-                            console.log("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                            this.logDebug("dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
                             if (!self.loadedPojoHistory.databases[dbname][hkey].includes(ival)) {
                                 bChanged = true;
-                                console.log("ADDING THIS to " + dbname + " db -> " + hkey, ival);
+                                this.logDebug("ADDING THIS to " + dbname + " db -> " + hkey, ival);
                                 changes.push({ "database": dbname, "key": hkey, "value": ival });
 
                                 //                                self.loadedPojoHistory.databases[dbname][hkey].push(ival);
@@ -742,7 +661,7 @@ export class PojoHelper {
                                 _addItem(val);
                             }
                         } else if (multi && multi !== "NA") {
-                            const avals = tobj[key].split(multi);
+                            const avals = this.splitParam(multi, tobj[key]);
                             for (const val2 of avals) {
                                 _addItem(val2);
                             }
@@ -769,7 +688,7 @@ export class PojoHelper {
             const dbname = item.database;
             const dbinfo = this.getDatabaseInfo(dbname);
             if (!dbinfo) {
-                console.error("ERROR getting database info", item);
+                this.logError("ERROR getting database info", item);
             } else {
                 const hkey = item.key;
                 if (!this.loadedPojoHistory.databases[dbname]) {
@@ -799,9 +718,9 @@ export class PojoHelper {
 
         const dbname = tobj._database;
         const dbinfo = this.getDatabaseInfo(dbname);
-        console.log("getHistoryChanges from", tobj);
+        this.logDebug("getHistoryChanges from", tobj);
         if (!dbinfo) {
-            console.error("ERROR getting database info for " + dbname);
+            this.logError("ERROR getting database info for " + dbname);
             return null;
         }
 
@@ -834,7 +753,7 @@ export class PojoHelper {
                 if (bHistory && tobj[key]) {
                     const _addItem = function (ival) {
                         if (!ival) { return; }
-                        console.log("ZZ dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                        this.logDebug("ZZ dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
                         if (!self.loadedPojoHistory.databases[dbname][hkey]) {
                             self.loadedPojoHistory.databases[dbname][hkey] = [];
                         }
@@ -870,12 +789,12 @@ export class PojoHelper {
     private getHistoryValues (dinfo: object, dkey: string): string[] {
 
         const dbname = dinfo.database;
-        console.log("getHistoryValues with " + dkey, this.loadedPojoHistory);
+        this.logDebug("getHistoryValues with " + dkey, this.loadedPojoHistory);
 
         if (this.loadedPojoHistory.databases[dbname]) {
             if (this.loadedPojoHistory.databases[dbname][dkey]) {
-                console.log("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory.databases[dbname][dkey]);
-                console.log("pojoHistory for " + dbname, this.loadedPojoHistory.databases[dbname]);
+                this.logDebug("Get History  " + dinfo.database + " with " + dkey, this.loadedPojoHistory.databases[dbname][dkey]);
+                this.logDebug("pojoHistory for " + dbname, this.loadedPojoHistory.databases[dbname]);
                 return this.loadedPojoHistory.databases[dbname][dkey];
             }
         }
@@ -900,7 +819,7 @@ export class PojoHelper {
     async saveHistory (vault: Vault, override: object) {
 
         if (override) {
-            console.log("WILL be overriding the history with supplied object!", override);
+            this.logDebug("WILL be overriding the history with supplied object!", override);
             this.loadedPojoHistory = override;
         }
 
@@ -915,9 +834,9 @@ export class PojoHelper {
         if (!this.loadedPojoHistory.history_editors) { this.loadedPojoHistory.history_editors = {}; }
         this.loadedPojoHistory.history_editors[platforminfo] = this.loadedPojoHistory.version + "-" + this.loadedPojoHistory.numsaves + " --> " + nowinfo;
 
-        console.log("POJO HISTORY!!", this.loadedPojoHistory);
+        this.logDebug("POJO HISTORY!!", this.loadedPojoHistory);
         if (this.nohistoryx) {
-            console.log("NO HISTORY CHANGES will be saved!!!");
+            this.logDebug("NO HISTORY CHANGES will be saved!!!");
             return;
         }
 
@@ -949,7 +868,7 @@ export class PojoHelper {
         let params = tagline.split(" ");
         let plen = params.length;
         let tags = null;
-        console.log("STARTING PARAMS " + plen, params);
+        this.logDebug("STARTING PARAMS " + plen, params);
 
         if (plen > 0) {
             params = params.filter(function (val) {
@@ -966,12 +885,12 @@ export class PojoHelper {
         }
 
         plen = params.length;
-        console.log("FILTERED PARAMS " + plen, params);
+        this.logDebug("FILTERED PARAMS " + plen, params);
 
         if (tags) {
             robj._tags = tags;
-            console.log("Stripped out tags! ", tags);
-            console.log("Last param is tag: " + bLastParamTag + " trailing space: " + bTrailingSpace);
+            this.logDebug("Stripped out tags! ", tags);
+            this.logDebug("Last param is tag: " + bLastParamTag + " trailing space: " + bTrailingSpace);
         }
 
         const taga = params[0].split("/");
@@ -1017,7 +936,7 @@ export class PojoHelper {
                 params.shift();
 
                 const roline = params.join(" ");
-                console.log("roline is " + roline);
+                this.logDebug("roline is " + roline);
                 const aparams = this.splitParams(roline);
 
                 if (aparams) {
@@ -1040,6 +959,7 @@ export class PojoHelper {
                                     //                                    robj._loc = `param${pnum + 1}`;
                                     if (finfo[pkey]) {
                                         // Check if this is limited to a fixed set of allowed values
+                                        // TODO: Need to change how fixed is handled.
                                         if (finfo[pkey].allowed == "fixed" && finfo[pkey].values) {
                                             if (finfo[pkey].values["_ALL"] || finfo[pkey].values[robj[dbinfo.type]]) {
                                                 const alla = finfo[pkey].values["_ALL"] ? finfo[pkey].values["_ALL"] : finfo[pkey].values[robj[dbinfo.type]];
@@ -1058,8 +978,7 @@ export class PojoHelper {
                                             }
                                         }
                                         if (finfo[pkey].multi) {
-                                            const splitchar = finfo[pkey].multi;
-                                            const va = p.split(splitchar);
+                                            const va = this.splitParam(finfo[pkey].multi, p);
                                             for (let i = 0; i < va.length; i++) {
                                                 va[i] = this.normalizeValue(va[i]);
                                             }
@@ -1104,14 +1023,14 @@ export class PojoHelper {
             // In a tag at the moment.
             robj._loc = "tag";
         }
-        //        console.log("HERE IS ROBJ", robj);
+        //        this.logDebug("HERE IS ROBJ", robj);
 
         return robj;
     }
 
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
-        console.log("getSuggestedValues POJO Object", pobj);
+        //        this.logDebug("getSuggestedValues POJO Object", pobj);
 
         if (!pobj || !pobj._loc) { return null; }
 
@@ -1135,26 +1054,23 @@ export class PojoHelper {
 
             let locval = pobj._locval;
             if (dinfo["field-info"] && dinfo["field-info"][pobj._loc]) {
-                let multi = dinfo["field-info"][pobj._loc].multi;
-                if (multi == "DASH") {
-                    multi = "-";
-                } else if (multi == "COMMA") {
-                    multi = ","
-                }
-                if (multi && multi !== "NA") {
-                    console.log("WE DOING multi " + multi, dinfo, pobj);
-                    const avals = locval.split(multi);
+                const multi = dinfo["field-info"][pobj._loc].multi;
+                if (locval && multi && multi !== "NA") {
+                    this.logDebug("WE DOING multi " + multi, dinfo, pobj);
+                    const avals = this.splitParam(multi, locval);
                     locval = avals[avals.length - 1].trim();
-                    console.log("MULTI FILTER VALS ", avals, locval);
+                    this.logDebug("MULTI FILTER VALS ", avals, locval);
                 }
             }
             values = this.filterValues(locval, svalues);
-            console.log("JUST FILTERED with >>" + locval + "<<");
+            this.logDebug("JUST FILTERED with >>" + locval + "<<");
             for (const v of values) {
                 v.origContext = locval;
             }
-            console.log("HERE is suggested values", values);
+            this.logDebug("HERE is suggested values", values);
         }
+
+        this.logDebug("getSuggestedValues number " + values.length);
 
         return values;
     }
@@ -1209,22 +1125,22 @@ export class PojoHelper {
     }
 
     private getValues (dinfo: object, pname: string, type?: string): string[] | null {
-        //        console.log("getValues with " + pname + " type: " + type, dinfo);
+        //        this.logDebug("getValues with " + pname + " type: " + type, dinfo);
         if (!dinfo["field-info"] || !dinfo["field-info"][pname]) {
             return [];
         }
 
         const finfo = dinfo["field-info"][pname];
-        //        console.log("field-info " + pname, finfo);
+        //        this.logDebug("field-info " + pname, finfo);
         if (finfo.allowed == "fixed") {
             if (!finfo.values || !finfo.values["_ALL"]) {
-                console.error("ERROR getting field info for " + pname, dinfo);
+                this.logError("ERROR getting field info for " + pname, dinfo);
                 return [];
             }
             return finfo.values["_ALL"];
         } else if (finfo.allowed == "history-type") {
             if (!type) {
-                console.error("ERROR with finfo.allowed of " + finfo.allowed, finfo);
+                this.logError("ERROR with finfo.allowed of " + finfo.allowed, finfo);
                 return [];
             }
             let values = [];
@@ -1240,7 +1156,7 @@ export class PojoHelper {
             return [...new Set([...values, ...this.getHistoryValues(dinfo, pname)])];
         } else {
             if (finfo.allowed !== "NA") {
-                console.error("ERROR - unknown allowed property: " + finfo.allowed, finfo);
+                this.logError("ERROR - unknown allowed property: " + finfo.allowed, finfo);
             }
             return [];
         }
@@ -1264,6 +1180,7 @@ export class PojoHelper {
         }
 
         const norm = [];
+
         // Split comma separated values
         const a = value.split(",");
         for (const v of a) {
@@ -1290,6 +1207,7 @@ export class PojoHelper {
         return nval;
     }
 
+    // Default param delimiter is ; but can be changed in data.json 
     private splitParams (pline: string): string[] {
 
         if (this.settings.split_param) {
@@ -1297,6 +1215,33 @@ export class PojoHelper {
         } else {
             pline.split(";")
         }
+    }
+
+    // Typically splitting A parameter with either COMMA or DASH
+    private splitParam (multi: string, param: string): string[] | string {
+
+        if (!param) {
+            return [""];
+        }
+
+        if (!multi) {
+            this.logError("SPLITTING param that is not multi-valued!", param);
+            return [param];
+        }
+
+        multi = multi.trim();
+        if (multi == "COMMA" || multi == ",") {
+            multi = ",";
+        } else if (multi == "DASH" || multi == "-") {
+            multi = "-";
+        } else if (multi == "NA") {
+            return [param];
+        } else {
+            this.logError("SPLITTING param NOT recognized value for multi " + multi, param);
+            return [param];
+        }
+
+        return param.split(multi);
     }
 }
 
@@ -1308,7 +1253,7 @@ export async function loadFromFile (vault: Vault, file: string) {
     try {
         data = JSON.parse(rawData);
     } catch (e) {
-        console.log("Completr pojo parse error:", e.message);
+        this.logDebug("Completr pojo parse error:", e.message);
         throw new Error(`Failed to parse file ${file}.`);
     }
 

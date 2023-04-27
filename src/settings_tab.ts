@@ -44,17 +44,9 @@ export default class PojoSettingsTab extends PluginSettingTab {
             .setName("POJO Version")
             .setDesc(plugininfo);
 
-        let historyinfo;
-        try {
-            historyinfo = await Pojo.getHistoryVersionProvider(this.plugin.app.vault);
-        } catch (err) {
-            console.error("ERROR getting history info:", err);
-            historyinfo = err.message;
-        }
-
         new Setting(containerEl)
-            .setName("History Version")
-            .setDesc(historyinfo);
+            .setName("Settings Version")
+            .setDesc(this.plugin.settings.version_settings);
 
         new Setting(containerEl)
             .setName("Power Obsidian Journaling (POJO) provider")

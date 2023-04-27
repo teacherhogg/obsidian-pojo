@@ -1,7 +1,8 @@
 import { Vault } from "obsidian";
 
 export interface PojoSettings {
-    settings_version: string,
+    version_settings: string,
+    version_manifest: string,
     metameta: object,
     characterRegex: string,
     maxLookBackDistance: number,
@@ -35,12 +36,11 @@ export interface PojoSettings {
 }
 
 export const DEFAULT_SETTINGS: PojoSettings = {
-    "settings_version": "0.9.80",
+    "version_settings": "23ap23U 08:00",
     "frontmatter_always_add": {
         "Type": "Diary",
-        "POJO": "0.9.80"
     },
-    "frontmatter_always_add_moc": ["Type: MOC", "POJO: 0.9.71"],
+    "frontmatter_always_add_moc": ["Type: MOC"],
     "characterRegex": "a-zA-ZöäüÖÄÜß",
     "maxLookBackDistance": 50,
     "minWordLength": 2,

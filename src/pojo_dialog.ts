@@ -1,6 +1,7 @@
 import { App, Modal, Setting, TFile } from "obsidian";
 import { PojoConvert } from "./pojo_convert";
 import { BaseTagSetting } from "./setting/baseTagSetting";
+import { PojoSettings } from './settings';
 
 export class PojoZap extends Modal {
     private hint: string;
@@ -8,10 +9,10 @@ export class PojoZap extends Modal {
     private logs: object;
     private pojo: object;
     private app: App;
-    private settings: object;
+    private settings: PojoSettings;
     private currentFile: TFile;
 
-    constructor(app: App, pojo: object, settings: object, history: object, hint: string, logs: object) {
+    constructor(app: App, pojo: object, settings: PojoSettings, history: object, hint: string, logs: object) {
         super(app);
         this.app = app;
         this.settings = settings;
@@ -32,7 +33,13 @@ export class PojoZap extends Modal {
     async onOpen () {
         const self = this;
         const { contentEl } = this;
+
+        const bSuccess = await self.pojo.InitDatabases();
+        if (!bSuccess) {
+            self.pojo.logError("ERROR initializing Databases!");
+        }
         console.log("HISTORY DIALOG", this.history, this.logs);
+
 
         //        if (this.currentFile) {
         //            const data = await this.app.vault.read(this.currentFile);
@@ -40,20 +47,14 @@ export class PojoZap extends Modal {
         //        }
 
         let msg;
-        if (this.hint) {
-            msg = this.hint;
-        } else {
-            msg = "Power Obsidian Journal. Time to CONVERT those journal entries!";
-        }
+        msg = "Pojo Version: " + this.settings.version_manifest + " | Settings Version: " + this.settings.version_settings;
 
-        if (this.history && this.history.version) {
-            msg = "History Version: " + this.history.version + "-" + this.history.numsaves + " | Settings Version: " + this.settings.settings_version;
-        }
         this.contentEl.empty();
         new Setting(contentEl)
             .setName("Information")
             .setDesc(msg)
 
+        /*
         new Setting(contentEl)
             .addButton((btn) =>
                 btn
@@ -73,7 +74,7 @@ export class PojoZap extends Modal {
                             }).open();
                     })
             )
-        /*
+        
                 new Setting(contentEl)
                     .addButton((btn) =>
                         btn
@@ -136,6 +137,7 @@ export class PojoZap extends Modal {
                     })
             )
 
+        /*
         if (this.history.history_editors) {
 
             new Setting(contentEl)
@@ -147,9 +149,9 @@ export class PojoZap extends Modal {
             }
             newel.createEl("hr");
         }
+        */
 
-
-        console.error("HERE IS log.errors", this.logs.errors);
+        console.log("HERE IS logs", this.logs);
         if (this.logs.errors) {
             new Setting(contentEl)
                 .setName("Error Logs")
@@ -160,6 +162,18 @@ export class PojoZap extends Modal {
             }
             newel.createEl("hr");
         }
+
+        if (this.logs.debug) {
+            new Setting(contentEl)
+                .setName("Debug Logs")
+
+            const newel = contentEl.createEl("div");
+            for (const log of this.logs.debug) {
+                newel.createEl("div", { text: log });
+            }
+            newel.createEl("hr");
+        }
+
 
     }
 
@@ -578,7 +592,7 @@ class DatabaseList extends Modal {
     }
 }
 
-class InformationModal extends Modal {
+export class InformationModal extends Modal {
 
     constructor(app: App, title: string, body: string) {
         super(app);

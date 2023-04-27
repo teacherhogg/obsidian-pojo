@@ -17,10 +17,17 @@ export default class PojoPlugin extends Plugin {
 
     async onload () {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        this.settings.version_manifest = this.manifest.version;
+        if (this.settings.frontmatter_always_add) {
+            this.settings.frontmatter_always_add.POJO = this.manifest.version;
+        }
+        if (this.settings.frontmatter_always_add_moc) {
+            this.settings.frontmatter_always_add_moc.push("POJO: " + this.manifest.version);
+        }
 
-        console.log("POJO PLUGIN onload called....", this.app.vault)
+        console.log("POJO PLUGIN onload called....", this.settings);
         // This initializes all of pojo.
-        await Pojo.loadSuggestions(this.app.vault, this.settings);
+        await Pojo.loadSuggestions(this.app.vault, this.settings, this.app);
         console.log("POJO initialized...");
 
         this.snippetManager = new SnippetManager();

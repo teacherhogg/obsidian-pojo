@@ -4,9 +4,9 @@ import {
     SuggestionProvider
 } from "./provider";
 import { PojoSettings } from "../settings";
-import { Notice, parseLinktext, TFile, Vault, Platform } from "obsidian";
+import { Notice, parseLinktext, TFile, Vault, Platform, App } from "obsidian";
 import { PojoHelper, loadFromFile } from "../pojo_helper";
-import { PojoZap, PojoConfirm, DatabaseReview } from "../pojo_dialog";
+import { PojoZap, PojoConfirm, DatabaseReview, InformationModal } from "../pojo_dialog";
 import { platform } from "os";
 
 class PojoSuggestionProvider implements SuggestionProvider {
@@ -19,6 +19,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
     private statusbar: object;
     private lastlinep: object;
     private vault: Vault;
+    private app: App;
     private initDBSuccess: false;
 
     private async initializeProvider (invault: Vault): Promise<boolean> {
@@ -35,58 +36,67 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
         this.vault = vault;
 
-        this.pojo = new PojoHelper(this, this.loadedPojoSettings, vault);
+        this.pojo = new PojoHelper(this, this.loadedPojoSettings, vault, this.app);
         this.lastlinep = null;
 
         return true;
     }
 
     async getSuggestions (context: SuggestionContext, settings: PojoSettings): Promise<Suggestion[]> {
-        console.log("getSuggestions Called!");
+        const self = this;
+
+        this.pojo.logDebug("==========================================");
+        this.pojo.logDebug("getSuggestions Called");
 
         if (!this.pojo) {
-            console.error("getSuggestions has not been initialized!")
+            this.pojo.logError("getSuggestions has not been initialized!")
             return [];
         }
 
         if (!this.initDBSuccess) {
-            this.initDBSuccess = await this.pojo.InitDatabases();
-            console.log("JUST initialized POJO", this.initDBSuccess);
+            this.pojo.logDebug("INIT DB to be called...");
+            try {
+                self.initDBSuccess = await self.pojo.InitDatabases();
+            } catch (err) {
+                self.pojo.logError("ERROR initDB", err);
+                return [];
+            }
+            this.pojo.logDebug("JUST initialized POJO", this.initDBSuccess);
         }
 
         const { editor } = context;
         const lineNumber = context.start.line;
         let line = editor.getLine(lineNumber);
-        console.warn("pojo line analysis >>" + line + "<<");
+        this.pojo.logDebug("pojo line analysis >>" + line + "<<");
 
 
         if (this.lastlinep && !line) {
             // We have a finished pojo line last one so need to make any updates to history as required
             let lineprev = editor.getLine(lineNumber - 1);
-            console.log("(Previous line >>" + lineprev + "<<)");
+            this.pojo.logDebug("(Previous line >>" + lineprev + "<<)");
 
             let pobjprev: object = null;
             if (lineprev) {
                 lineprev = this.pojo.stripLeading(lineprev)
                 pobjprev = this.pojo.parsePojoLine(lineprev);
             }
-            console.log("Previous Line Object", pobjprev);
+            this.pojo.logDebug("Previous Line Object", pobjprev);
 
             const self = this;
             if (pobjprev) {
                 const changes = this.pojo.getHistoryChanges(pobjprev);
                 if (changes) {
 
-                    console.log("GOTS SOME CHNAGES!!", changes);
+                    this.pojo.logDebug("GOTS SOME CHNAGES!!", changes);
 
                     const saveHistoryChanges = async function (historyC) {
-                        console.log("HERE WE NEED TO DO THE SAVE DEED!", historyC);
+                        this.pojo.logDebug("HERE WE NEED TO DO THE SAVE DEED!", historyC);
                         return await self.pojo.saveHistoryChanges(self.vault, historyC);
                     }
 
                     new PojoConfirm(app, changes, saveHistoryChanges).open();
 
-                    console.log("DIS IS THE POJO CONFIRM DONE...");
+                    this.pojo.logDebug("DIS IS THE POJO CONFIRM DONE...");
 
                     // Write out history file with new change
                     //                this.pojo.saveHistory(this.vault);
@@ -102,12 +112,13 @@ class PojoSuggestionProvider implements SuggestionProvider {
 
         // Ensure we're in a Pojo Structured data line.
         line = this.pojo.stripLeading(line)
-        console.log(`>>${line}<<`);
+        this.pojo.logDebug(`>>${line}<<`);
         const pobj: object = this.pojo.parsePojoLine(line);
+
+        this.pojo.logDebug("parsePojoLine", line, pobj);
         if (pobj == null) {
             return [];
         }
-        console.log("parsePojoLine Object", pobj);
 
         const hint = this.generateHint(pobj);
         //        console.log("getSuggestions Hint", hint);
@@ -129,8 +140,9 @@ class PojoSuggestionProvider implements SuggestionProvider {
         return null;
     }
 
-    async loadSuggestions (vault: Vault, settings: object) {
+    async loadSuggestions (vault: Vault, settings: object, app: App) {
         this.vault = vault;
+        this.app = app;
         this.loadedPojoSettings = settings;
         await this.initializeProvider(vault);
     }
@@ -184,14 +196,6 @@ class PojoSuggestionProvider implements SuggestionProvider {
         return this.pojo.getPlatformInfo();
     }
 
-    async getHistoryVersionProvider (vault: Vault) {
-        if (!this.pojo) {
-            const inited = await this.initializeProvider(vault);
-            if (!inited) { return "ERROR getting history version"; }
-        }
-        return this.pojo.getHistoryVersion();
-    }
-
     async getHistoryProvider (vault: Vault) {
         if (!this.pojo) {
             const inited = await this.initializeProvider(vault);
@@ -241,15 +245,29 @@ class PojoSuggestionProvider implements SuggestionProvider {
         new DatabaseReview(app, dbname, null, history.databases[dbname]).open();
     }
 
+    infoDialog (app: object, title, message) {
+        new InformationModal(
+            app, title, message
+        ).open();
+    }
+
     async pojoZap (app: object, bJustHint: boolean): Promise<null> {
+
         if (!this.pojo) {
             const inited = await this.initializeProvider(app.vault);
-            if (!inited) { return; }
+            if (!inited) {
+                this.infoDialog(app, "FAILURE", "Could not init provider!");
+                return;
+            }
         }
+        this.pojo.logDebug("pojoZap Called");
 
-        console.log("HERE is hint " + this.hint);
         const logs = await this.getLogsProvider();
-        console.log("pojoZap on provider", logs);
+        if (!logs) {
+            this.infoDialog(app, "LOGS FAILURE", "No logs info!");
+        } else {
+            this.pojo.logDebug("Got logs provider");
+        }
         const history = await this.getHistoryProvider();
         new PojoZap(app, this.pojo, this.loadedPojoSettings, history, this.hint, logs).open();
     }
