@@ -1,6 +1,5 @@
-import { Vault, TFile } from "obsidian";
+import { Vault, TFile, App } from "obsidian";
 import { parse } from "@textlint/markdown-to-ast";
-import matter from 'gray-matter';
 import { PojoSettings, generatePath } from "./settings";
 
 const imageactions = {
@@ -20,6 +19,7 @@ export class PojoConvert {
 
     private settings: PojoSettings;
     private vault: Vault;
+    private app: App;
     private defsec: string;
     private currentdb: string;
     private currentidx = 0;
@@ -27,10 +27,11 @@ export class PojoConvert {
     private pojo: object;
     private memoizeTracking = {};
 
-    constructor(settings: PojoSettings, pojo: object, vault: Vault) {
+    constructor(settings: PojoSettings, pojo: object, vault: Vault, app: App) {
         this.settings = settings;
         this.pojo = pojo
         this.vault = vault;
+        this.app = app;
         this.defsec = this.settings.daily_entry_h3[0];
         this.currentdb = this.settings.daily_entry_h3[0];
     }
@@ -49,7 +50,10 @@ export class PojoConvert {
         try {
             // Get file contents
             if (convertAgain) {
-                fname = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes, inputFile.name);
+                fname = generatePath(
+                    this.settings.folder_pojo,
+                    this.settings.subfolder_archived_daily_notes,
+                    this.getNoteFileName(inputFile.name, false));
                 contentFile = this.vault.getAbstractFileByPath(fname);
             }
 
@@ -66,10 +70,16 @@ export class PojoConvert {
         let frontmatter = null;
         let diarydate = null;
         let parsedcontent = null;
+        let filecontent = null;
         try {
             // Extract any YAML
-            const filematter = matter(content);
-            frontmatter = filematter.data;
+            frontmatter = this.app.metadataCache.getFileCache(inputFile)?.frontmatter;
+            if (!frontmatter) { frontmatter = {}; }
+
+            //            console.log("HERE Is frontmatter!!!", frontmatter, inputFile);
+
+            //            const filematter = matter(content);
+            //            frontmatter = filematter.data;
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
             if (frontmatter && frontmatter.POJO) {
@@ -84,7 +94,18 @@ export class PojoConvert {
             this.currentfile = contentFile;
             this.currentdb = this.defsec;
             this.currentidx = 0;
-            parsedcontent = this.parseMarkdown(filematter.content);
+
+            try {
+                filecontent = await this.vault.read(inputFile);
+            } catch (err) {
+                this.logError("ERROR on reading file " + inputFile.path, err);
+                return {
+                    "type": "error_parsing",
+                    "msg": "Error Encountered: " + err.message
+                }
+            }
+
+            parsedcontent = this.parseMarkdown(filecontent);
             this.currentfile = null;
 
             // Check to see IF this is actually a daily note
@@ -118,7 +139,7 @@ export class PojoConvert {
         // Archive the original daily note
         if (!convertAgain) {
             const mfolder = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes);
-            await this.pojo.createMarkdownFile(content, mfolder, inputFile.name);
+            await this.pojo.createMarkdownFile(content, mfolder, this.getNoteFileName(inputFile.name, false));
         }
 
         // Construct the NEW daily note from parsedcontent
@@ -169,7 +190,7 @@ export class PojoConvert {
 
             // Output the new Daily Note file.
             const mdcontent = md.join("\n");
-            await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, inputFile.name, true);
+            await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, this.getNoteFileName(inputFile.name, true), true);
 
         } catch (err) {
             this.pojo.logError("ERROR caught on markdownexport", err);
@@ -180,6 +201,14 @@ export class PojoConvert {
             return eobj;
         }
         console.warn("FINISHED export of content to obsidian vault");
+
+        // Delete the Daily Note File WITHOUT the processed file name.
+        const orignote = generatePath(
+            this.settings.folder_daily_notes,
+            this.getNoteFileName(inputFile.name, false));
+        this.pojo.logDebug("Deleting original note " + orignote);
+        const origNoteFile = this.vault.getAbstractFileByPath(orignote);
+        await this.vault.delete(origNoteFile);
 
         // Create markdown files for metadata records
         await this.writeOutMetadataRecords(newrecords);
@@ -321,6 +350,32 @@ export class PojoConvert {
         this.pojo.logDebug("EXITING NOW!!!");
 
         this.exitNow([], true);
+    }
+
+    private getNoteFileName (filename: string, bProcessed: boolean): string {
+        // Returns the filename for PROCESSED if bProcessed true, or NOT with PROCESSED if bProcessed false
+
+        const a = filename.split(".");
+        const lastchar = a[0].charAt(a[0].length - 1);
+
+        if (bProcessed) {
+            // Name should be of the form "YYYY-MM-DD dow ⚡" when returned.
+            if (lastchar == "⚡") {
+                // Nothing to do.
+                return filename;
+            } else {
+                return a[0] + " ⚡." + a[1];
+            }
+        } else {
+            // Name should be of the form "YYYY-MM-DD dow" when returned.
+            if (lastchar == "⚡") {
+                // Remove last two chars.
+                const newname = a[0].slice(0, a[0].length - 2);
+                return newname + "." + a[1];
+            }
+        }
+
+        return filename;
     }
 
     private exitNow (erra: string[], bend?: boolean) {

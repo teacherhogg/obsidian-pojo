@@ -99,7 +99,7 @@ export class PojoZap extends Modal {
                         //                        console.log("HERE is the newhistory", newhistory);
                         //                        this.pojo.saveHistory(this.app.vault, newhistory);
 
-                        const convert = new PojoConvert(self.settings, self.pojo, self.app.vault);
+                        const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
                         const retval = await convert.convertDailyNote(this.currentFile);
                         console.log("Conversion Completed.", retval);
 

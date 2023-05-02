@@ -30,7 +30,7 @@ export class PojoHelper {
         this.vault = vault;
         this.app = app;
         this.logs = {};
-        this.debugging = false;
+        this.debugging = true;
 
         this.metaunits = {};
         this.metatimes = {};
@@ -137,7 +137,14 @@ export class PojoHelper {
         }
 
         if (dobj) {
-            this.logs[category].push(JSON.stringify(dobj, null, 3));
+            let emsg;
+            try {
+                emsg = JSON.stringify(dobj, null, 3);
+            } catch {
+                emsg = "Error stringifying object";
+            }
+
+            this.logs[category].push(emsg);
             this.logs[category].push(" ]]");
         }
 
@@ -504,7 +511,8 @@ export class PojoHelper {
         const dbdata = this.loadedPojoHistory.databases[dbname];
 
         const dbinfo = this.loadedPojoDB[dbname];
-        this.logDebug("Saving DB File " + dbname, dbdata, dbinfo);
+        this.logDebug("Saving DB File " + dbname, dbdata);
+        this.logDebug("HERE is db info for " + dbname, dbinfo);
         this.convertDBInfoToYaml(dbinfo, md);
 
         for (const key in dbdata) {
@@ -512,9 +520,13 @@ export class PojoHelper {
                 md.push(key + ":");
                 const keya = dbdata[key];
                 if (keya) {
-                    for (const val of keya) {
-                        md.push("   - " + val);
+                    if (Array.isArray(keya)) {
+                        for (const val of keya) {
+                            md.push("   - " + val);
+                        }
                     }
+                } else {
+                    this.logError("ERROR found unexpected key value" + key, keya);
                 }
             }
         }
@@ -571,6 +583,10 @@ export class PojoHelper {
         try {
 
             frontmatter = this.app.metadataCache.getFileCache(mfile)?.frontmatter;
+            // position gets added by obsidian to frontmatter. Remove.
+            if (frontmatter.position) {
+                delete frontmatter.position;
+            }
             //            const filematter = matter(content);
             //            frontmatter = filematter.data;
         } catch (err) {
@@ -682,6 +698,7 @@ export class PojoHelper {
 
     async saveHistoryChanges (vault: Vault, changes: object[]): boolean {
 
+        console.log("saveHistoryChanges", changes);
         const dbchanges = {};
         for (const item of changes) {
 
@@ -706,6 +723,8 @@ export class PojoHelper {
                 dbchanges[dbname] = true;
             }
         }
+
+        console.log("HERE is loadedPojoHistory", this.loadedPojoHistory);
 
         for (const dbx in dbchanges) {
             await this.saveDatabaseFile(dbx);
@@ -753,7 +772,7 @@ export class PojoHelper {
                 if (bHistory && tobj[key]) {
                     const _addItem = function (ival) {
                         if (!ival) { return; }
-                        this.logDebug("ZZ dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
+                        self.logDebug("ZZ dname " + dbname + " hkey " + hkey, self.loadedPojoHistory.databases[dbname]);
                         if (!self.loadedPojoHistory.databases[dbname][hkey]) {
                             self.loadedPojoHistory.databases[dbname][hkey] = [];
                         }

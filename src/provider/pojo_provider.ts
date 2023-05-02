@@ -90,7 +90,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
                     this.pojo.logDebug("GOTS SOME CHNAGES!!", changes);
 
                     const saveHistoryChanges = async function (historyC) {
-                        this.pojo.logDebug("HERE WE NEED TO DO THE SAVE DEED!", historyC);
+                        self.pojo.logDebug("HERE WE NEED TO DO THE SAVE DEED!", historyC);
                         return await self.pojo.saveHistoryChanges(self.vault, historyC);
                     }
 
@@ -269,6 +269,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
             this.pojo.logDebug("Got logs provider");
         }
         const history = await this.getHistoryProvider();
+        console.log("HERE is history", history);
         new PojoZap(app, this.pojo, this.loadedPojoSettings, history, this.hint, logs).open();
     }
 
