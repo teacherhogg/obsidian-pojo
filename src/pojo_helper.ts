@@ -30,7 +30,7 @@ export class PojoHelper {
         this.vault = vault;
         this.app = app;
         this.logs = {};
-        this.debugging = true;
+        this.debugging = false;
 
         this.metaunits = {};
         this.metatimes = {};
@@ -873,6 +873,8 @@ export class PojoHelper {
         }
         tagline = tagline.trimEnd();
 
+        console.log("HERE DA LINE", tagline);
+
         // Pojo Tags (or H3) do not have spaces in the reference except for Daily Entry
         if (this.settings.daily_entry_h3.includes(tagline)) {
             return {
@@ -1042,7 +1044,17 @@ export class PojoHelper {
             // In a tag at the moment.
             robj._loc = "tag";
         }
+
+        // We check if the _params[0] is empty. If so, we set any metadata values for it.
+        //        const subtype = robj._params[0];
+        //        if (!robj[subtype] && robj[_tags]){
+        //
+        //      })
+
         //        this.logDebug("HERE IS ROBJ", robj);
+        console.log("HERE DA ROBJ", robj);
+
+
 
         return robj;
     }
@@ -1134,7 +1146,13 @@ export class PojoHelper {
         let av: string[] = values;
         if (input) {
             const lcin = input.toLocaleLowerCase();
-            av = values.filter(value => value.toLowerCase().startsWith(lcin));
+            av = values.filter(value => {
+                if (value && typeof value === 'string') {
+                    return value.toLowerCase().startsWith(lcin);
+                } else {
+                    return true;
+                }
+            });
         }
 
         for (const v of av) {

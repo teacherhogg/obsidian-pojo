@@ -42,11 +42,11 @@ export class PojoConvert {
         // We are converting a daily note AGAIN if convertAgain is ture
         // This means the original file has already been archived and we need to redo from that copy!
 
-        this.pojo.logDebug("Converting Daily Note ", inputFile);
+        this.pojo.logDebug("Converting Daily Note ", inputFile, convertAgain);
 
-        let content = null;
         let fname = null;
         let contentFile = inputFile;
+        let filecontent = null;
         try {
             // Get file contents
             if (convertAgain) {
@@ -57,7 +57,8 @@ export class PojoConvert {
                 contentFile = this.vault.getAbstractFileByPath(fname);
             }
 
-            content = await this.vault.read(contentFile);
+            filecontent = await this.vault.read(contentFile);
+
         } catch (err) {
             this.logError("ERROR on reading file!", err);
             return {
@@ -70,10 +71,9 @@ export class PojoConvert {
         let frontmatter = null;
         let diarydate = null;
         let parsedcontent = null;
-        let filecontent = null;
         try {
             // Extract any YAML
-            frontmatter = this.app.metadataCache.getFileCache(inputFile)?.frontmatter;
+            frontmatter = this.app.metadataCache.getFileCache(contentFile)?.frontmatter;
             if (!frontmatter) { frontmatter = {}; }
 
             //            console.log("HERE Is frontmatter!!!", frontmatter, inputFile);
@@ -82,7 +82,7 @@ export class PojoConvert {
             //            frontmatter = filematter.data;
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
-            if (frontmatter && frontmatter.POJO) {
+            if (!convertAgain && frontmatter && frontmatter.POJO) {
                 this.pojo.logDebug("Already Converted!", frontmatter);
                 return {
                     "type": "noconvert_alreadyconverted",
@@ -94,16 +94,6 @@ export class PojoConvert {
             this.currentfile = contentFile;
             this.currentdb = this.defsec;
             this.currentidx = 0;
-
-            try {
-                filecontent = await this.vault.read(inputFile);
-            } catch (err) {
-                this.logError("ERROR on reading file " + inputFile.path, err);
-                return {
-                    "type": "error_parsing",
-                    "msg": "Error Encountered: " + err.message
-                }
-            }
 
             parsedcontent = this.parseMarkdown(filecontent);
             this.currentfile = null;
@@ -139,7 +129,7 @@ export class PojoConvert {
         // Archive the original daily note
         if (!convertAgain) {
             const mfolder = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes);
-            await this.pojo.createMarkdownFile(content, mfolder, this.getNoteFileName(inputFile.name, false));
+            await this.pojo.createMarkdownFile(filecontent, mfolder, this.getNoteFileName(inputFile.name, false));
         }
 
         // Construct the NEW daily note from parsedcontent
@@ -1215,15 +1205,21 @@ export class PojoConvert {
                         frontmatter[af[2]] = source;
                     } else if (action == 'DatePlus') {
                         // Going to create a whole set of Frontmatter fields based on dateplus_to_frontmatter
-                        let newDate = new Date(source);
-                        if (!(newDate instanceof Date) || isNaN(newDate.valueOf())) {
-                            // Didn't work. Try removing the end.
-                            const ad = source.split(" ");
-                            newDate = new Date(ad[0] + " 12:00");
-                        }
-                        //                        this.pojo.logDebug("HERE IS newDate from " + source, newDate);
-                        const obsidianDate = newDate.toISOString().split('T')[0];
-                        frontmatter[af[2]] = obsidianDate;
+                        // source will be date in format YYYY-MM-DD
+                        const adates = source.split("-");
+                        const year = adates[0];
+                        const shortyear = adates[0] - 2000;
+                        const month = adates[1];
+                        const day = adates[2];
+
+                        const zdate = new Date(source);
+                        const offset = zdate.getTimezoneOffset() * 60 * 1000;
+                        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+
+                        const newDate = new Date(zdatenum);
+                        console.log("THE NEW DATE TIEME IS", newDate);
+
+                        frontmatter[af[2]] = source;
                         if (this.settings.frontmatter_dateplus) {
                             for (const dp of this.settings.frontmatter_dateplus) {
                                 switch (dp) {
@@ -1293,6 +1289,10 @@ export class PojoConvert {
                                         })
                                         frontmatter[dp] = wd;
                                         break;
+                                    case 'ISODave':
+                                        frontmatter[dp] = this.getISODave(newDate);
+                                        console.log("ISODave found " + dp, frontmatter[dp]);
+                                        break;
                                     default:
                                         this.logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
                                 }
@@ -1318,8 +1318,22 @@ export class PojoConvert {
         }
     }
 
+    private getISODave (dt: Date): string {
+        const mnabbs = ["ja", "fe", "mr", "ap", "my", "jn",
+            "jl", "au", "se", "oc", "nv", "de"];
+        const mnth = mnabbs[dt.getMonth()];
+
+        const daysofweek = ["U", "M", "T", "W", "R", "F", "S"];
+        const dw = daysofweek[dt.getDay()];
+
+        const isodave = (dt.getFullYear() - 2000) + mnth + dt.getDate() + dw;
+        return isodave;
+    }
 
     private convertISODave (dddate: string): string {
+
+        const self = this;
+        console.log("convertISODave from ", dddate);
 
         // ISO Dave 1.0: Xdmyr
         // ISO Dave 2.0: yrmmdX
@@ -1345,14 +1359,14 @@ export class PojoConvert {
                 case "n": month = "11"; break;
                 case "d": month = "12"; break;
                 default:
-                    this.pojo.logError("ERROR on month!!! ISODave1 " + mn + " ->" + ddate);
-                    this.logError("ERROR on H1 as date " + mn, dddate);
+                    self.pojo.logError("ERROR on month!!! ISODave1 " + mn + " ->" + ddate);
+                    self.logError("ERROR on H1 as date " + mn, dddate);
                     return null;
             }
             const rem = ddate.substring(1, len - 3);
             const dom = parseInt(rem);
             if (isNaN(dom) || isNaN(yr)) {
-                this.logError("ERROR getting date from " + dddate, dddate);
+                self.logError("ERROR getting date from " + dddate, dddate);
                 return null;
             }
 
@@ -1364,7 +1378,9 @@ export class PojoConvert {
             //		this.pojo.logDebug("Dave Date 1.0: " + ddate);
             //		this.pojo.logDebug(yr + "/" + month + "/" + dayom);
 
-            return yr + "-" + month + "-" + dayom;
+            const isodave1 = yr + "-" + month + "-" + dayom;
+            console.log("ISODAVE1", ddate, isodave1);
+            return isodave1;
         }
 
         const _ISODave2 = function (ddate) {
@@ -1385,14 +1401,14 @@ export class PojoConvert {
                 case "nv": month = "11"; break;
                 case "de": month = "12"; break;
                 default:
-                    this.pojo.logError("ERROR on month!!! ISODave2 " + mn + " ->" + ddate);
-                    this.logError("ERROR on H1 as date " + mn, dddate);
+                    self.pojo.logError("ERROR on month!!! ISODave2 " + mn + " ->" + ddate);
+                    self.logError("ERROR on H1 as date " + mn, dddate);
                     return null;
             }
             const rem = ddate.slice(4);
             const dom = parseInt(rem);
             if (isNaN(dom) || isNaN(yr)) {
-                this.logError("ERROR getting date from " + dddate, dddate);
+                self.logError("ERROR getting date from " + dddate, dddate);
                 return null;
             }
 
@@ -1406,7 +1422,9 @@ export class PojoConvert {
             //		this.pojo.logDebug("Dave Date 2.0: " + ddate);
             //		this.pojo.logDebug(yr + "/" + month + "/" + dayom);
 
-            return yr + "-" + month + "-" + dayom;
+            const isodave2 = yr + "-" + month + "-" + dayom;
+            console.log("ISODAVE2", ddate, isdave2);
+            return isodave2;
         }
 
         if (isNaN(parseInt(dddate[0], 10))) {
@@ -1420,7 +1438,7 @@ export class PojoConvert {
 
         const self = this;
         this.pojo.logDebug("writeOutMetadataRecords here...", newrecords);
-        let rcount;
+        let rcount = 1;
 
 
         const _createNewMetadataRecord = async function (record: object, typename: string, rparams: string[]): void {
@@ -1453,7 +1471,6 @@ export class PojoConvert {
             rcount++;
         };
 
-        const tagparams = ["Time", "Duration"];
         try {
             for (const record of newrecords) {
                 if (record.Database !== this.defsec) {
@@ -1463,8 +1480,10 @@ export class PojoConvert {
 
                     const rparams = [];
 
+                    console.log("record", record);
+                    console.log("dbinfo", dbinfo);
                     for (const p in record) {
-                        if (dbinfo.params.includes(p) || tagparams.includes(p)) {
+                        if (record._params.includes(p)) {
                             if (this.checkParamOutputMetadata(p)) {
                                 rparams.push(p);
                             }
@@ -1480,9 +1499,35 @@ export class PojoConvert {
     }
 
     private getDateFromFile (): string {
+        // Date returned should be in the format YYYY-MM-DD
         //        this.pojo.logDebug("HERE IS THE currentfile", this.currentfile);
-        const basename = this.currentfile.basename;
-        return basename;
+
+        let datename = this.currentfile.basename;
+        let ddate = new Date(datename);
+        let bValid = false;
+
+        if (ddate == "Invalid Date") {
+            // Perhaps trailing day of week string? Remove and try again.
+            const a = datename.split(" ");
+            a.pop();
+            ddate = new Date(a.join(" "));
+            if (ddate != "Invalid Date") {
+                bValid = true;
+                datename = a.join(" ");
+            }
+        } else {
+            bValid = true;
+        }
+
+        let retval = "ERR777";
+        if (bValid) {
+            retval = datename;
+        } else {
+            this.pojo.logError("ERROR - filename NOT a date! " + datename);
+        }
+
+        //        console.log("DATE FOIUND FILE " + retval, this.currentfile.basename);
+        return retval;
     }
 
     private checkParamOutputMetadata (key: string): boolean {

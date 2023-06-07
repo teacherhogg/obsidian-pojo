@@ -76,7 +76,6 @@ export const DEFAULT_SETTINGS: PojoSettings = {
         }
     },
     "frontmatter_add": [
-        "Daily Entry/ISOdave:String:ISODave",
         "Daily Entry/Now:Date:Last Converted",
         "Daily Entry/Date:DatePlus:Diary Date"
     ],
@@ -86,7 +85,8 @@ export const DEFAULT_SETTINGS: PojoSettings = {
         "Month",
         "YY-MM",
         "YY-WK",
-        "Day of Week"
+        "Day of Week",
+        "ISODave"
     ],
     "frontmatter_params_include": [
         "Learning:Author",
