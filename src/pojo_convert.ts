@@ -1,11 +1,10 @@
 import { Vault, TFile, App } from "obsidian";
 import { parse } from "@textlint/markdown-to-ast";
 import { PojoSettings, generatePath } from "./settings";
+import * as path from "path";
+import convert from "heic-convert";
 
-const imageactions = {
-    convert: [],
-    copy: []
-};
+
 const logs = {
     debug: {},
     tracking: {},
@@ -36,7 +35,7 @@ export class PojoConvert {
         this.currentdb = this.settings.daily_entry_h3[0];
     }
 
-    async convertDailyNote (inputFile: TFile, convertAgain: boolean): Promise<object> {
+    async convertDailyNote (inputFile: TFile, imageactions: object, convertAgain: boolean, convertTry: boolean): Promise<object> {
 
 
         // We are converting a daily note AGAIN if convertAgain is ture
@@ -47,20 +46,32 @@ export class PojoConvert {
         let fname = null;
         let contentFile = inputFile;
         let filecontent = null;
+        let archiveFile = !convertAgain;
+        if (convertTry) {
+            archiveFile = false;
+        }
         try {
             // Get file contents
-            if (convertAgain) {
+            if (convertAgain || convertTry) {
+                //                console.log("CONVERTING NOTE ", inputFile);
                 fname = generatePath(
                     this.settings.folder_pojo,
                     this.settings.subfolder_archived_daily_notes,
                     this.getNoteFileName(inputFile.name, false));
+                //                console.log("READING ARCHIVE FILE AT:" + fname);
                 contentFile = this.vault.getAbstractFileByPath(fname);
+                if (!contentFile && convertTry) {
+                    contentFile = inputFile;
+                    archiveFile = true;
+                }
+                //                console.log("READING FILE", contentFile);
             }
 
             filecontent = await this.vault.read(contentFile);
 
         } catch (err) {
             this.logError("ERROR on reading file!", err);
+            console.error("ERROR reading content of file " + fname, contentFile);
             return {
                 "type": "error_reading",
                 "msg": "Cannot read note at " + fname + " ( " + err.message + " )"
@@ -82,7 +93,7 @@ export class PojoConvert {
             //            frontmatter = filematter.data;
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
-            if (!convertAgain && frontmatter && frontmatter.POJO) {
+            if (frontmatter && frontmatter.POJO) {
                 this.pojo.logDebug("Already Converted!", frontmatter);
                 return {
                     "type": "noconvert_alreadyconverted",
@@ -98,12 +109,14 @@ export class PojoConvert {
             parsedcontent = this.parseMarkdown(filecontent);
             this.currentfile = null;
 
+            //            console.log("parsedcontent", parsedcontent);
+
             // Check to see IF this is actually a daily note
-            if (!parsedcontent) {
-                this.pojo.logDebug("NOT a daily note!");
+            if (!parsedcontent || Object.keys(parsedcontent).length == 0) {
+                this.pojo.logDebug("Empty daily not!");
                 return {
-                    "type": "noconvert_notdailynote",
-                    "msg": "This is NOT a POJO compliant daily note."
+                    "type": "noconvert_empty",
+                    "msg": "This note is devoid of content."
                 };
             } else if (!parsedcontent[this.defsec] || !parsedcontent[this.defsec][0].Date) {
                 this.pojo.logDebug("Some type of markdown note, but NOT a daily note!", parsedcontent);
@@ -123,14 +136,8 @@ export class PojoConvert {
             }
         }
 
-        console.warn("FINISHED import of markdown file", parsedcontent);
+        // console.warn("FINISHED import of markdown file", parsedcontent);
         this.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
-
-        // Archive the original daily note
-        if (!convertAgain) {
-            const mfolder = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes);
-            await this.pojo.createMarkdownFile(filecontent, mfolder, this.getNoteFileName(inputFile.name, false));
-        }
 
         // Construct the NEW daily note from parsedcontent
         const newrecords: object[] = [];
@@ -173,14 +180,24 @@ export class PojoConvert {
 
             if (this.settings.donotcreatefiles) {
                 this.pojo.logDebug("NOT creating actual files in Obsidian Vault due to 'donotcreatefiles' option!");
-                return "notfinished_nocreatefiles";
+                return {
+                    "type": "notfinished_nocreatefiles",
+                    "msg": "Settings value donotcreatefiles is true!"
+                };
             }
 
-            const md = this.createNewDailyNoteMarkdown(frontmatter, dailyentry, sections, footlinks);
+            // Archive the original daily note
+            if (archiveFile) {
+                const mfolder = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes);
+                await this.pojo.createVaultFile(filecontent, mfolder, this.getNoteFileName(inputFile.name, false, frontmatter["Daily Note"]));
+            }
+
+            const dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
+            const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions);
 
             // Output the new Daily Note file.
             const mdcontent = md.join("\n");
-            await this.pojo.createMarkdownFile(mdcontent, this.settings.folder_daily_notes, this.getNoteFileName(inputFile.name, true), true);
+            await this.pojo.createVaultFile(mdcontent, this.settings.folder_daily_notes, dailynotefile, true);
 
         } catch (err) {
             this.pojo.logError("ERROR caught on markdownexport", err);
@@ -190,7 +207,7 @@ export class PojoConvert {
             }
             return eobj;
         }
-        console.warn("FINISHED export of content to obsidian vault");
+        //        console.warn("FINISHED export of content to obsidian vault");
 
         // Delete the Daily Note File WITHOUT the processed file name.
         const orignote = generatePath(
@@ -203,49 +220,6 @@ export class PojoConvert {
         // Create markdown files for metadata records
         await this.writeOutMetadataRecords(newrecords);
 
-        // Copy (and convert if HEIC) with any referenced images
-        const BSKIPFORNOW = true;
-        if (!this.settings.donotcopyattachments && !BSKIPFORNOW) {
-            this.pojo.logDebug("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
-            const attdir = generatePath(this.settings.export_folder, this.settings.folder_attachments);
-            fs.ensureDirSync(attdir);
-
-            nCount = 0;
-            for (const img of imageactions.copy) {
-                try {
-                    fs.copySync(img.source, img.target);
-                    nCount++;
-                    process.stdout.write(nCount + ",");
-                } catch (err) {
-                    const errs = [];
-                    errs.push("SOURCE " + img.source);
-                    errs.push("ERROR during copy of image " + err.message);
-                    this.exitNow(errs);
-                }
-            }
-            this.pojo.logDebug("----------------------------->");
-            for (const imgc of imageactions.convert) {
-                try {
-                    const inputBuffer = fs.readFileSync(imgc.source);
-                    const outputBuffer = await convert({
-                        buffer: inputBuffer,
-                        format: 'JPEG',
-                        quality: 0.9
-                    });
-                    fs.outputFileSync(imgc.target, outputBuffer);
-                    nCount++;
-                    process.stdout.write(nCount + ",");
-                } catch (err) {
-                    const errs = [];
-                    errs.push("SOURCE " + imgc.source);
-                    errs.push("ERROR during convert of image " + err.message);
-                    this.exitNow(errs);
-                }
-            }
-            this.pojo.logDebug("FINISHED copy of images to obsidian vault");
-            //        } else {
-            //            this.pojo.logDebug("NOTE - attachments not copied due to setting donotcopyattachments being true.")
-        }
 
         return {
             "type": "success",
@@ -253,21 +227,80 @@ export class PojoConvert {
         }
     }
 
-    async convertNow (): Promise<boolean> {
+    async manageImages (imageactions: object): Promise<object> {
+
+        const retobj = {
+            success: true,
+            failures: [],
+            ncount: 0
+        }
+
+        // Copy (and convert if HEIC) with any referenced images
+        if (this.settings.donotcopyattachments) {
+            console.log("NO copy or convert of image attachments as donotcopyattachments is true!");
+            retobj.success = false;
+            retobj.msg = "donotcopyattachments is set to true in settings!";
+            return retobj;
+        }
+
+        console.log("NEED to manage images", imageactions);
+
+        let nCount = 0;
+        for (const refnote in imageactions) {
+            const images = imageactions[refnote];
+            for (const img of images) {
+                if (!await this.pojo.checkAttachmentExists(img.imagename)) {
+                    // Target image does not yet exist! 
+                    if (img.imageext === ".HEIC") {
+                        // Need to CONVERT
+                        const inputBuffer = await this.pojo.loadDailyNoteImageFile(img);
+                        let outputBuffer;
+                        try {
+                            outputBuffer = await convert({
+                                buffer: inputBuffer,
+                                format: 'JPEG',
+                                quality: 0.9
+                            });
+                        } catch (err) {
+                            console.error("ERROR converting HEIC image to jpg", err);
+                            retobj.success = false;
+                            retobj.failures.push(img)
+                        }
+                        if (outputBuffer) {
+                            if (!await this.pojo.writeDailyNoteImageFile(img, outputBuffer)) {
+                                retobj.success = false;
+                                retobj.failures.push(img)
+                            } else {
+                                nCount++;
+                            }
+                        }
+                    } else {
+                        // Need to COPY
+                        if (!await this.pojo.copyDailyNoteImageFile(img)) {
+                            retobj.success = false;
+                            retobj.failures.push(img);
+                        } else {
+                            nCount++;
+                        }
+                    }
+                }
+            }
+        }
+
+        retobj.ncount = nCount;
+
+        return retobj;
+    }
+
+    async convertNowDEPRECATED (): Promise<boolean> {
 
         // Get the list of markdown files in the import directory and start processing.
         if (!this.settings.import_folder) {
             this.logError("MISSING import folder in this.settings file.")
             return false;
         }
-        const importFiles = this.getInputFiles(this.settings.import_folder);
-        this.logDebug("debug", "Number of files to import: " + importFiles.length);
-
-        // Start import of list of markdown files
-        this.pojo.logDebug("BEGIN import of " + importFiles.length + " markdown files");
-        let exportContent;
         try {
-            exportContent = this.markdownImportFiles(importFiles);
+            exportContent = this.markdownImportFilesDEPRECATED(importFiles);
         } catch (err) {
             this.logError("ERROR on markdownImport!", err);
         }
@@ -293,56 +326,12 @@ export class PojoConvert {
         }
         this.pojo.logDebug("FINISHED creating MOC files.");
 
-
-        // Copy (and convert if HEIC) with any referenced images
-        if (!this.settings.donotcopyattachments) {
-            this.pojo.logDebug("BEGIN copy of " + imageactions.copy.length + " and convert of " + imageactions.convert.length + " images to obsidian vault");
-            const attdir = generatePath(this.settings.export_folder, this.settings.folder_attachments);
-            fs.ensureDirSync(attdir);
-
-            nCount = 0;
-            for (const img of imageactions.copy) {
-                try {
-                    fs.copySync(img.source, img.target);
-                    nCount++;
-                    process.stdout.write(nCount + ",");
-                } catch (err) {
-                    const errs = [];
-                    errs.push("SOURCE " + img.source);
-                    errs.push("ERROR during copy of image " + err.message);
-                    this.exitNow(errs);
-                }
-            }
-            this.pojo.logDebug("----------------------------->");
-            for (const imgc of imageactions.convert) {
-                try {
-                    const inputBuffer = fs.readFileSync(imgc.source);
-                    const outputBuffer = await convert({
-                        buffer: inputBuffer,
-                        format: 'JPEG',
-                        quality: 0.9
-                    });
-                    fs.outputFileSync(imgc.target, outputBuffer);
-                    nCount++;
-                    process.stdout.write(nCount + ",");
-                } catch (err) {
-                    const errs = [];
-                    errs.push("SOURCE " + imgc.source);
-                    errs.push("ERROR during convert of image " + err.message);
-                    this.exitNow(errs);
-                }
-            }
-            this.pojo.logDebug("FINISHED copy of images to obsidian vault");
-        } else {
-            this.pojo.logDebug("NOTE - attachments not copied due to setting donotcopyattachments being true.")
-        }
-
         this.pojo.logDebug("EXITING NOW!!!");
 
         this.exitNow([], true);
     }
 
-    private getNoteFileName (filename: string, bProcessed: boolean): string {
+    private getNoteFileName (filename: string, bProcessed: boolean, dailynotename: string): string {
         // Returns the filename for PROCESSED if bProcessed true, or NOT with PROCESSED if bProcessed false
 
         const a = filename.split(".");
@@ -351,21 +340,30 @@ export class PojoConvert {
         if (bProcessed) {
             // Name should be of the form "YYYY-MM-DD dow ⚡" when returned.
             if (lastchar == "⚡") {
-                // Nothing to do.
-                return filename;
+                if (dailynotename) {
+                    return dailynotename + " ⚡." + a[1];
+                } else {
+                    return filename;
+                }
             } else {
-                return a[0] + " ⚡." + a[1];
+                if (dailynotename) {
+                    return dailynotename + " ⚡." + a[1];
+                } else {
+                    return a[0] + " ⚡." + a[1];
+                }
             }
         } else {
             // Name should be of the form "YYYY-MM-DD dow" when returned.
             if (lastchar == "⚡") {
-                // Remove last two chars.
-                const newname = a[0].slice(0, a[0].length - 2);
-                return newname + "." + a[1];
+                if (dailynotename) {
+                    return dailynotename + "." + a[1];
+                } else {
+                    // Remove last two chars.
+                    const newname = a[0].slice(0, a[0].length - 2);
+                    return newname + "." + a[1];
+                }
             }
         }
-
-        return filename;
     }
 
     private exitNow (erra: string[], bend?: boolean) {
@@ -380,7 +378,7 @@ export class PojoConvert {
         this.pojo.pojoLogs("debug", [msg], obj, false);
     }
 
-    private getInputFiles (folder): TFile[] {
+    getInputFiles (folder): TFile[] {
 
         const inputfiles = [];
         const files = this.vault.getMarkdownFiles();
@@ -392,7 +390,7 @@ export class PojoConvert {
         return inputfiles;
     }
 
-    private async markdownImportFiles (mdfiles: TFile[]) {
+    private async markdownImportFilesDEPRECATED (mdfiles: TFile[]) {
 
         const exported = {
             diary: {},
@@ -476,14 +474,15 @@ export class PojoConvert {
                             iobj = {};
                             iobj.imageurl = decodeURI(c.url);
                             const pimage = path.parse(iobj.imageurl);
-                            iobj.imageext = pimage.ext;
-                            iobj.source = generatePath(this.settings.import_folder, iobj.imageurl);
                             iobj.imagename = pimage.base;
+                            iobj.imagesource = pimage.base;
+                            iobj.imageext = pimage.ext;
+                            iobj.imagedir = pimage.dir;
                             if (pimage.ext == ".HEIC") {
                                 // Need to convert to jpg.
                                 iobj.imagename = pimage.name + ".jpg";
                             }
-                            iobj.target = generatePath(this.settings.export_folder, this.settings.folder_attachments, iobj.imagename);
+                            //                            console.log("HERE IS IMAGE OBJ", iobj, pimage);
                         } else {
                             if (iobj && c.value && c.value !== "\n") {
                                 iobj.caption = c.value;
@@ -581,6 +580,7 @@ export class PojoConvert {
             // Check if this is a date!
             const date = new Date(line);
             this.pojo.logDebug("CONVERT " + line + " to date:", date)
+            //            console.log("CONVERT " + line + " to date:", date)
             if (!date || (date instanceof Date && isNaN(date.valueOf()))) {
                 // See if it is an ISO Date
                 parsed[this.defsec][0].ISODave = line;
@@ -601,6 +601,7 @@ export class PojoConvert {
             if (!parsed[this.defsec][0].Date) {
                 parsed[this.defsec][0].Date = this.getDateFromFile();
             }
+            this.pojo.logDebug("HERE IS TITLE " + parsed[this.defsec][0]._Title, parsed[this.defsec][0].Date);
         } else if (key == "Image") {
             // Image, possibly with caption. Use the Obsidian plugin for image captions.
             if (line && line.imageurl) {
@@ -777,13 +778,13 @@ export class PojoConvert {
             } else {
                 mocname = fname;
             }
-            const moc = generatePath(this.settings.export_folder, this.settings.folder_moc, mocname + ".md");
+            const moc = generatePath(this.settings.folder_moc, mocname + ".md");
 
             if (bOverwrite || !fs.existsSync(moc)) {
                 // Only create if an existing file does not exist!
                 const mfm = _getMOCfrontmatter(moctype, dbname, param, value);
                 const md = mfm.join("\n") + "\n" + MOCtemplate[moctype];
-                await this.pojo.createMarkdownFile(md, this.settings.folder_moc, mocname + ".md");
+                await this.pojo.createVaultFile(md, this.settings.folder_moc, mocname + ".md");
                 fs.outputFileSync(moc, md);
             }
         };
@@ -966,7 +967,7 @@ export class PojoConvert {
         return true;
     }
 
-    private createNewDailyNoteMarkdown (frontmatter: object, dailyentry: object, sections: object, footlinks: string[]) {
+    private createNewDailyNoteMarkdown (dailynotefile: string, frontmatter: object, dailyentry: object, sections: object, footlinks: string[], imageactions: object) {
 
         // Create the markdown for the note
         const md = [];
@@ -978,6 +979,13 @@ export class PojoConvert {
         }
         md.push("---");
         md.push(" ");
+
+        // Output any top content for Daily Note
+        if (this.settings.daily_note_add_top) {
+            for (const aline of this.settings.daily_note_add_top) {
+                md.push(aline);
+            }
+        }
 
         // Output the Daily Entry
         if (dailyentry.Heading) {
@@ -997,18 +1005,15 @@ export class PojoConvert {
         // Add images reference to entries
         if (dailyentry._images && !this.settings.donotcopyattachments) {
             bAddRule = true;
+            const refnote = dailynotefile.split(".")[0];
             for (const image of dailyentry._images) {
                 if (image.caption) {
                     md.push(`![[${image.imagename}|${image.caption}]]`);
                 } else {
                     md.push(`![[${image.imagename}]]`);
                 }
-                const aobj = { source: image.source, target: image.target };
-                if (image.imageext == ".HEIC") {
-                    imageactions.convert.push(aobj);
-                } else {
-                    imageactions.copy.push(aobj);
-                }
+                if (!imageactions[refnote]) { imageactions[refnote] = []; }
+                imageactions[refnote].push(image);
             }
             md.push("");
         }
@@ -1018,7 +1023,7 @@ export class PojoConvert {
         }
 
         // Add all the callout sections.
-        console.log("HERE are sections", sections);
+        //        console.log("HERE are sections", sections);
         // Add Photo Section first.
         if (sections.Photo) {
             this.addCalloutSection(md, "Photo", sections.Photo);
@@ -1053,12 +1058,19 @@ export class PojoConvert {
             md.push(cl);
         }
 
+        // Output any bottom content for Daily Note
+        if (this.settings.daily_note_add_bottom) {
+            for (const aline of this.settings.daily_note_add_bottom) {
+                md.push(aline);
+            }
+        }
+
         return md;
     }
 
     private addMarkdownCalloutSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
 
-        console.warn("addMarkdownCalloutSection " + db, dbentry)
+        //        console.warn("addMarkdownCalloutSection " + db, dbentry)
 
         let catchall = true;
         for (const entry of dbentry) {
@@ -1173,6 +1185,21 @@ export class PojoConvert {
 
     private addFrontMatterForEntry (dbentry: object[], frontmatter: object) {
 
+
+        // Add Daily Note YAML entry 
+        const source = dbentry[this.defsec][0].Date;
+
+        const zdate = new Date(source);
+        const offset = zdate.getTimezoneOffset() * 60 * 1000;
+        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+
+        const newDate = new Date(zdatenum);
+        //        console.log("DA DATE from " + source, newDate);
+        const dow = newDate.toLocaleDateString("en-US", {
+            weekday: "short"
+        })
+        frontmatter["Daily Note"] = newDate.toISOString().split('T')[0] + " " + dow;
+
         // Add always add to frontmatter from this.settings
         if (this.settings.frontmatter_always_add) {
             for (const fma in this.settings.frontmatter_always_add) {
@@ -1193,12 +1220,9 @@ export class PojoConvert {
                     const source = dbe[sr[1]];
                     const action = af[1];
                     if (action == 'Date') {
-                        let newDate;
                         if (sr[1] == "Now") {
-                            newDate = new Date();
                             frontmatter[af[2]] = newDate.toDateString() + " " + newDate.toLocaleTimeString();
                         } else {
-                            newDate = new Date(source);
                             frontmatter[af[2]] = newDate.toISOString().split('T')[0];
                         }
                     } else if (action == 'String') {
@@ -1211,13 +1235,6 @@ export class PojoConvert {
                         const shortyear = adates[0] - 2000;
                         const month = adates[1];
                         const day = adates[2];
-
-                        const zdate = new Date(source);
-                        const offset = zdate.getTimezoneOffset() * 60 * 1000;
-                        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
-
-                        const newDate = new Date(zdatenum);
-                        console.log("THE NEW DATE TIEME IS", newDate);
 
                         frontmatter[af[2]] = source;
                         if (this.settings.frontmatter_dateplus) {
@@ -1291,7 +1308,7 @@ export class PojoConvert {
                                         break;
                                     case 'ISODave':
                                         frontmatter[dp] = this.getISODave(newDate);
-                                        console.log("ISODave found " + dp, frontmatter[dp]);
+                                        //                                        console.log("ISODave found " + dp, frontmatter[dp]);
                                         break;
                                     default:
                                         this.logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
@@ -1333,7 +1350,6 @@ export class PojoConvert {
     private convertISODave (dddate: string): string {
 
         const self = this;
-        console.log("convertISODave from ", dddate);
 
         // ISO Dave 1.0: Xdmyr
         // ISO Dave 2.0: yrmmdX
@@ -1366,7 +1382,7 @@ export class PojoConvert {
             const rem = ddate.substring(1, len - 3);
             const dom = parseInt(rem);
             if (isNaN(dom) || isNaN(yr)) {
-                self.logError("ERROR getting date from " + dddate, dddate);
+                self.logError("ERROR6 getting date from " + dddate, dddate);
                 return null;
             }
 
@@ -1379,7 +1395,7 @@ export class PojoConvert {
             //		this.pojo.logDebug(yr + "/" + month + "/" + dayom);
 
             const isodave1 = yr + "-" + month + "-" + dayom;
-            console.log("ISODAVE1", ddate, isodave1);
+            //            console.log("ISODAVE1", ddate, isodave1);
             return isodave1;
         }
 
@@ -1408,7 +1424,7 @@ export class PojoConvert {
             const rem = ddate.slice(4);
             const dom = parseInt(rem);
             if (isNaN(dom) || isNaN(yr)) {
-                self.logError("ERROR getting date from " + dddate, dddate);
+                self.logError("ERROR4 getting date from " + dddate, dddate);
                 return null;
             }
 
@@ -1423,7 +1439,7 @@ export class PojoConvert {
             //		this.pojo.logDebug(yr + "/" + month + "/" + dayom);
 
             const isodave2 = yr + "-" + month + "-" + dayom;
-            console.log("ISODAVE2", ddate, isdave2);
+            //            console.log("ISODAVE2", ddate, isodave2);
             return isodave2;
         }
 
@@ -1466,7 +1482,7 @@ export class PojoConvert {
 
             const filename = record.Database + "-" + record.Date + "-" + record.Nentry + rcount + ".md";
             const foldername = generatePath(self.settings.folder_pojo, self.settings.subfolder_metadata);
-            await self.pojo.createMarkdownFile(md.join("\n"), foldername, filename, true);
+            await self.pojo.createVaultFile(md.join("\n"), foldername, filename, true);
 
             rcount++;
         };
@@ -1480,8 +1496,6 @@ export class PojoConvert {
 
                     const rparams = [];
 
-                    console.log("record", record);
-                    console.log("dbinfo", dbinfo);
                     for (const p in record) {
                         if (record._params.includes(p)) {
                             if (this.checkParamOutputMetadata(p)) {
@@ -1503,6 +1517,12 @@ export class PojoConvert {
         //        this.pojo.logDebug("HERE IS THE currentfile", this.currentfile);
 
         let datename = this.currentfile.basename;
+
+        const lastchar = datename.charAt(datename.length - 1);
+        if (lastchar == "⚡") {
+            datename = datename.slice(0, datename.length - 2);
+        }
+
         let ddate = new Date(datename);
         let bValid = false;
 

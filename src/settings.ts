@@ -31,8 +31,7 @@ export interface PojoSettings {
     delete_meta: string[],
     donotcreatefiles: false,
     donotcopyattachments: false,
-    import_folder: string,
-    export_folder: string
+    import_folder: string
 }
 
 export const DEFAULT_SETTINGS: PojoSettings = {
@@ -125,8 +124,7 @@ export const DEFAULT_SETTINGS: PojoSettings = {
     "delete_meta": ["Event Type"],
     "donotcreatefiles": false,
     "donotcopyattachments": false,
-    "import_folder": "Daily Notes",
-    "export_folder": "Journal"
+    "import_folder": "Daily Notes"
 }
 
 export function generatePath (...path: string[]): string {

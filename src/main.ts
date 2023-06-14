@@ -11,11 +11,13 @@ import { Pojo } from "./provider/pojo_provider";
 export default class PojoPlugin extends Plugin {
 
     settings: PojoSettings;
+    statusbar: HTMLElement;
 
     private snippetManager: SnippetManager;
     private _suggestionPopup: SuggestionPopup;
 
     async onload () {
+        this.statusbar = this.addStatusBarItem();
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         this.settings.version_manifest = this.manifest.version;
         if (this.settings.frontmatter_always_add) {
@@ -108,7 +110,7 @@ export default class PojoPlugin extends Plugin {
 
         // POJO Action Dialog
         this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
-            Pojo.pojoZap(this.app, false);
+            Pojo.pojoZap(this.app, false, this.statusbar);
         })
 
         this.addCommand({

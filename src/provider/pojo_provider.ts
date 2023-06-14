@@ -5,7 +5,7 @@ import {
 } from "./provider";
 import { PojoSettings } from "../settings";
 import { Notice, parseLinktext, TFile, Vault, Platform, App } from "obsidian";
-import { PojoHelper, loadFromFile } from "../pojo_helper";
+import { PojoHelper } from "../pojo_helper";
 import { PojoZap, PojoConfirm, DatabaseReview, InformationModal } from "../pojo_dialog";
 import { platform } from "os";
 
@@ -251,7 +251,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         ).open();
     }
 
-    async pojoZap (app: object, bJustHint: boolean): Promise<null> {
+    async pojoZap (app: object, bJustHint: boolean, statusbar: HTMLElement): Promise<null> {
 
         if (!this.pojo) {
             const inited = await this.initializeProvider(app.vault);
@@ -270,7 +270,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         }
         const history = await this.getHistoryProvider();
         console.log("HERE is history", history);
-        new PojoZap(app, this.pojo, this.loadedPojoSettings, history, this.hint, logs).open();
+        new PojoZap(app, this.pojo, this.loadedPojoSettings, history, this.hint, logs, statusbar).open();
     }
 
     private generateHint (robj: object): string {

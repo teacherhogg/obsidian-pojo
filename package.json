@@ -1,6 +1,6 @@
 {
     "name": "obsidian-pojo",
-    "version": "0.9.91",
+    "version": "0.9.92",
     "description": "Power Obsidian Journaling (POJO), a journaling plugin that creates structured and unstructured data and plays nicely with other plugins such as Daily Notes, Datacore, and more.",
     "main": "main.js",
     "scripts": {
@@ -13,11 +13,13 @@
     "devDependencies": {
         "@codemirror/state": "^6.1.2",
         "@textlint/markdown-to-ast": "^13.3.2",
+        "@types/heic-convert": "^1.2.0",
         "@types/node": "^16.11.6",
         "@typescript-eslint/eslint-plugin": "^5.30.7",
         "@typescript-eslint/parser": "^5.30.7",
         "builtin-modules": "^3.3.0",
         "esbuild": "^0.15.11",
+        "heic-convert": "^1.2.4",
         "jschardet": "^3.0.0",
         "obsidian": "^1.2.5",
         "tslib": "^2.5.0",

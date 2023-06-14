@@ -21,6 +21,7 @@ export class PojoHelper {
     private metatimes: object;
     private logs: object;
     private debugging: boolean;
+    private errorstack: null;
 
     constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault, app: App) {
         this.pojoProvider = pojoProvider;
@@ -30,6 +31,9 @@ export class PojoHelper {
         this.vault = vault;
         this.app = app;
         this.logs = {};
+        this.errorstack = [];
+
+        // DEBUGGING MODE
         this.debugging = false;
 
         this.metaunits = {};
@@ -58,7 +62,7 @@ export class PojoHelper {
         return this.vault.configDir + "/plugins/obsidian-pojo";
     }
 
-    async createMarkdownFile (data: string, folder: string, filename: string, bOverwrite: boolean) {
+    async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean) {
 
         // First check if folder exists in vault.
         if (!(await this.vault.adapter.exists(folder))) {
@@ -98,7 +102,7 @@ export class PojoHelper {
 
     async pojoLogs (category: string, errs: string[], dobj?: object, bend?: boolean) {
 
-        if (this.debugging) { console.log(">>> LOG POJO START"); }
+        if (this.debugging) { console.log(">>>>>>>>>>>>>>>"); }
         for (const eem of errs) {
             if (category == "errors") {
                 console.error(eem);
@@ -113,7 +117,7 @@ export class PojoHelper {
                 console.log(dobj);
             }
         }
-        if (this.debugging) { console.log("LOG POJO END <<<"); }
+        if (this.debugging) { console.log("<<<<<<<<<<"); }
 
         if (!this.debugging && category !== "errors") {
             return;
@@ -165,8 +169,19 @@ export class PojoHelper {
         this.pojoLogs("debug", msgs, dobj);
     }
 
+    errorStack (bReset: boolean): Array<T> {
+        if (bReset) {
+            this.errorstack = [];
+        }
+        return this.errorstack;
+    }
+
     logError (msg: string, dobj?: object) {
         this.pojoLogs("errors", [msg], dobj);
+        this.errorstack.push({
+            message: msg,
+            object: dobj
+        });
     }
 
     getPlatformInfo () {
@@ -267,6 +282,8 @@ export class PojoHelper {
             } else {
                 pvalue += " min";
             }
+        } else if (fieldi.type == "text") {
+            pvalue = "[[" + pvalue + "]] " + fieldi.display;
         } else {
             pvalue += fieldi.display
         }
@@ -315,28 +332,43 @@ export class PojoHelper {
         this.logDebug("extrctMetaMeta metaunits", this.metaunits);
         this.logDebug("HERE is record to add meta", record);
 
-        for (const tag of record._tags) {
-            let num = parseFloat(tag);
+        for (let tag of record._tags) {
+            const leadingnum = tag.replace(/[^0-9]/g, "");
+            let num = parseFloat(leadingnum);
             const unit = tag.replace(/[0-9.:;]/g, '');
             const ca = tag.split(":");
             let type = "duration";
             let fieldi;
-            if (ca.length == 2) { type = "start-time"; }
-            if (!unit) {
-                fieldi = this.metaunits["_default-" + type];
-                if (!fieldi) {
-                    fieldi = this.metaunits["_default"];
+            if (isNaN(num)) {
+                // Assume it is a text field.
+                let tkey = "_default-text";
+                if (ca.length == 2) {
+                    tkey = ca[0];
+                    tag = ca[1];
                 }
+                fieldi = this.metaunits[tkey];
             } else {
-                fieldi = this.metaunits[unit];
+                if (ca.length == 2) { type = "start-time"; }
+                if (!unit) {
+                    fieldi = this.metaunits["_default-" + type];
+                    if (!fieldi) {
+                        fieldi = this.metaunits["_default"];
+                    }
+                } else {
+                    fieldi = this.metaunits[unit];
+                }
+            }
+            //            this.logDebug("here is fieldi for " + tag + " and unit " + unit, fieldi);
+
+            if (!fieldi) {
+                this.logError("ERROR getting fieldi for tag " + tag);
+                return false;
             }
 
-            this.logDebug("here is fieldi for " + tag + " and unit " + unit, fieldi);
             type = fieldi.type;
 
-            if (isNaN(num)) {
-                // ERROR!
-                this.logError("ERROR in _tags value " + tag);
+            if (type == "text") {
+                record[fieldi.name] = tag;
             } else {
                 if (fieldi.type == "duration") {
                     if (unit == "h" || unit == "hr") {
@@ -503,6 +535,70 @@ export class PojoHelper {
         }
     }
 
+    async checkAttachmentExists (fname: string): Promise<boolean> {
+        const attachment = generatePath(this.settings.folder_attachments, fname);
+        return await this.vault.adapter.exists(attachment);
+    }
+
+    async loadDailyNoteImageFile (imageinfo: object): Promise<any> {
+
+        let data = null;
+
+        // First find the image file.
+        const imagefile = generatePath(this.settings.folder_daily_notes, imageinfo.imagedir, imageinfo.imagesource);
+        if (!await this.vault.adapter.exists(imagefile)) {
+            console.error("ERROR finding image fileL " + imagefile, imageinfo);
+            return data;
+        }
+
+        try {
+            data = await this.vault.adapter.read(imagefile);
+        } catch (err) {
+            console.error("ERROR reading source file", imagefile, err);
+            return data;
+        }
+
+        return data;
+    }
+
+    async copyDailyNoteImageFile (imageinfo: object, bCleanup: boolean): Promise<boolean> {
+        // First find the image file.
+        const imagefile = generatePath(this.settings.folder_daily_notes, imageinfo.imagedir, imageinfo.imagename);
+        if (!await this.vault.adapter.exists(imagefile)) {
+            console.error("ERROR finding image fileL " + imagefile, imageinfo);
+            return false;
+        }
+
+        // Copy
+        const targetfile = generatePath(this.settings.folder_attachments, imageinfo.imagename);
+        try {
+            await this.vault.adapter.copy(imagefile, targetfile);
+        } catch (err) {
+            console.error("ERROR copying file", imagefile, targetfile, err);
+            return false;
+        }
+
+        // Delete source file and folder 
+        if (bCleanup) {
+            console.log("TODO - cleanup stuff!!!");
+        }
+
+        return true;
+    }
+
+    async writeDailyNoteImageFile (imageinfo: object, outputBuffer: ArrayBuffer): Promise<boolean> {
+
+        const targetfile = generatePath(this.settings.folder_attachments, imageinfo.imagename);
+        try {
+            await this.vault.adapter.writeBinary(targetfile, outputBuffer);
+        } catch (e) {
+            console.error("ERROR writing out file " + targetfile, e);
+            return false;
+        }
+
+        return true;
+    }
+
     async saveDatabaseFile (dbname: string): boolean {
         const mdfilename = dbname + ".md";
         const md = [];
@@ -550,7 +646,7 @@ export class PojoHelper {
         md.push("* @NUMz (energy) and @NUMj (happiness) on scales where NUM is from 1 to 10.");
 
         const foldername = generatePath(this.settings.folder_pojo, this.settings.subfolder_databases);
-        await this.createMarkdownFile(md.join("\n"), foldername, mdfilename, true);
+        await this.createVaultFile(md.join("\n"), foldername, mdfilename, true);
 
         return true;
     }
@@ -873,7 +969,7 @@ export class PojoHelper {
         }
         tagline = tagline.trimEnd();
 
-        console.log("HERE DA LINE", tagline);
+        this.logDebug("HERE DA LINE", tagline);
 
         // Pojo Tags (or H3) do not have spaces in the reference except for Daily Entry
         if (this.settings.daily_entry_h3.includes(tagline)) {
@@ -962,7 +1058,9 @@ export class PojoHelper {
 
                 if (aparams) {
                     if (aparams.length > dbinfo.params.length) {
-                        this.logError("ERROR in tag params. More than expected for tag ", aparams);
+                        this.logError("ERROR in tag params. More than expected for tag ");
+                        this.logError("HERE IS APARAMS", aparams);
+                        this.logError("HERE IS DBINFO", dbinfo);
                         return null;
                     } else {
                         let pnum = 0;
@@ -1052,9 +1150,7 @@ export class PojoHelper {
         //      })
 
         //        this.logDebug("HERE IS ROBJ", robj);
-        console.log("HERE DA ROBJ", robj);
-
-
+        //        console.log("HERE DA ROBJ", robj);
 
         return robj;
     }
@@ -1282,20 +1378,5 @@ export class PojoHelper {
     }
 }
 
-export async function loadFromFile (vault: Vault, file: string) {
-    const rawData = await vault.adapter.read(file);
-    let data: unknown;
-
-    // Parse the suggestions.
-    try {
-        data = JSON.parse(rawData);
-    } catch (e) {
-        this.logDebug("Completr pojo parse error:", e.message);
-        throw new Error(`Failed to parse file ${file}.`);
-    }
-
-    // Return suggestions.
-    return data;
-}
 
 
