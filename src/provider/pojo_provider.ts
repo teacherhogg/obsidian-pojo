@@ -66,7 +66,13 @@ class PojoSuggestionProvider implements SuggestionProvider {
 
         const { editor } = context;
         const lineNumber = context.start.line;
-        let line = editor.getLine(lineNumber);
+        let line;
+        try {
+            line = editor.getLine(lineNumber);
+        } catch (err) {
+            console.error("ERROR on getLine");
+            return [];
+        }
         this.pojo.logDebug("pojo line analysis >>" + line + "<<");
 
 

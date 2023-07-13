@@ -25,6 +25,7 @@ export class PojoConvert {
     private currentfile: TFile;
     private pojo: object;
     private memoizeTracking = {};
+    private convertEnabled = true;
 
     constructor(settings: PojoSettings, pojo: object, vault: Vault, app: App) {
         this.settings = settings;
@@ -33,6 +34,116 @@ export class PojoConvert {
         this.app = app;
         this.defsec = this.settings.daily_entry_h3[0];
         this.currentdb = this.settings.daily_entry_h3[0];
+    }
+
+    async createMOCFiles (bCreateOnly: boolean): Promise<object> | null {
+
+        // Load the MOC templates.
+        const mocTemplates = await this.pojo.getMOCTemplates();
+        if (!mocTemplates) {
+            this.logError("ERROR on getting moc templates!");
+            console.error("Error reading MOC Templates");
+            return null;
+        }
+        console.log("MOCTEMPLATES", mocTemplates);
+
+        console.log()
+
+        const info = {
+            mocCount: 0,
+            mocCollisions: [],
+            mocNames: {},
+            bCreateOnly: bCreateOnly
+        }
+        const dbs = this.pojo.getDatabases(true);
+        console.log("HERE ARE databases", dbs);
+        for (const db in dbs.databases) {
+            const mret = await this.createMOCFile(db, dbs.databases[db], mocTemplates, info);
+        }
+
+        return info;
+    }
+
+    async createMOCFile (dbname: string, dbdata: object, templates: object, info: object): Promise<object> {
+        console.log("createMOC Files for " + dbname, dbdata);
+        const self = this;
+        const dbinfo = dbdata._database;
+        const typekey = dbinfo.type;
+        const metadatafolder = generatePath(self.settings.folder_pojo, self.settings.subfolder_metadata);
+
+        // Get params array without last param (which is always Description).
+        const sparams = dbinfo.params.slice(0, -1);
+
+        const _getMOCFilename = function (mname: string): string {
+            if (info.mocNames[mname]) {
+                // Collision!
+                info.mocNames[mname]++;
+                info.mocCollisions.push(mname);
+                return "CMOC-" + mname + ".md";
+            } else {
+                info.mocNames[mname] = 1;
+                return mname + ".md";
+            }
+        }
+
+        const _getMOCfrontmatter = function (moctype: string, filterkey?: string, filtervalue?: string): string[] {
+
+            const fm = [];
+            fm.push("---");
+            if (self.settings.frontmatter_always_add_moc) {
+                for (const line of self.settings.frontmatter_always_add_moc) {
+                    fm.push(line);
+                }
+            }
+            fm.push(`database: ${dbname}`);
+            fm.push(`metadata: ${metadatafolder}`);
+            fm.push(`Category: ${moctype}`);
+            if (moctype == 'MOC-database') {
+                fm.push(`viewparams: ${sparams}`);
+            } else if (moctype == 'MOC-param') {
+                fm.push(`viewparams: ${sparams}`);
+                //                fm.push(`filterkey: ${param}`);
+            } else if (moctype == 'MOC-type-value') {
+                const vps = [];
+                for (const vp of sparams) {
+                    vps.push(vp);
+                }
+                const vpval = vps.join(",");
+                fm.push(`viewparams: [${vpval}]`);
+                fm.push(`filterkey: ${filterkey}`);
+                fm.push(`filtervalue: ${filtervalue}`);
+            } else {
+                this.exitNow(["Unknown MOC Type " + moctype]);
+            }
+
+            fm.push("---");
+            return fm.join("\n");
+        }
+
+        // Create a Database MOC
+        let moc = _getMOCfrontmatter("MOC-database");
+        moc += "\n" + templates["MOC-database"].content;
+        let mocfilename = _getMOCFilename(dbname);
+        await this.pojo.createVaultFile(moc, this.settings.folder_moc, mocfilename, !info.bCreateOnly);
+        info.mocCount++;
+
+        // Create a Type MOC
+
+
+        // Create a Type Value MOC
+        if (dbdata[typekey]) {
+            const typevals = dbdata[typekey];
+            for (const typeval of typevals) {
+                moc = _getMOCfrontmatter("MOC-type-value", typekey, typeval);
+                moc += "\n" + templates["MOC-type-value"].content;
+                mocfilename = _getMOCFilename(typeval);
+                await this.pojo.createVaultFile(moc, this.settings.folder_moc, mocfilename, !info.bCreateOnly);
+                info.mocCount++;
+
+            }
+        }
+
+        return {};
     }
 
     async convertDailyNote (inputFile: TFile, imageactions: object, convertAgain: boolean, convertTry: boolean): Promise<object> {
@@ -71,6 +182,7 @@ export class PojoConvert {
 
         } catch (err) {
             this.logError("ERROR on reading file!", err);
+            console.error("input file", inputFile);
             console.error("ERROR reading content of file " + fname, contentFile);
             return {
                 "type": "error_reading",
@@ -94,6 +206,7 @@ export class PojoConvert {
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
             if (frontmatter && frontmatter.POJO) {
+                //                console.log("FILE being converted is " + fname, filecontent);
                 this.pojo.logDebug("Already Converted!", frontmatter);
                 return {
                     "type": "noconvert_alreadyconverted",
@@ -144,6 +257,7 @@ export class PojoConvert {
         const dailyentry = {};
         const sections = {};
         const footlinks = [];
+        let dailynotefile = null;
         try {
 
             // Add frontmatter
@@ -192,7 +306,7 @@ export class PojoConvert {
                 await this.pojo.createVaultFile(filecontent, mfolder, this.getNoteFileName(inputFile.name, false, frontmatter["Daily Note"]));
             }
 
-            const dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
+            dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
             const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions);
 
             // Output the new Daily Note file.
@@ -213,12 +327,13 @@ export class PojoConvert {
         const orignote = generatePath(
             this.settings.folder_daily_notes,
             this.getNoteFileName(inputFile.name, false));
-        this.pojo.logDebug("Deleting original note " + orignote);
+        this.pojo.logDebug("Deleting original note :" + orignote + ":");
         const origNoteFile = this.vault.getAbstractFileByPath(orignote);
+        //        console.log("DELETING original noteFile " + orignote, origNoteFile);
         await this.vault.delete(origNoteFile);
 
         // Create markdown files for metadata records
-        await this.writeOutMetadataRecords(newrecords);
+        await this.writeOutMetadataRecords(dailynotefile, newrecords);
 
 
         return {
@@ -251,34 +366,40 @@ export class PojoConvert {
             for (const img of images) {
                 if (!await this.pojo.checkAttachmentExists(img.imagename)) {
                     // Target image does not yet exist! 
-                    if (img.imageext === ".HEIC") {
+                    if (this.convertEnabled && img.imageext === ".HEIC") {
                         // Need to CONVERT
-                        const inputBuffer = await this.pojo.loadDailyNoteImageFile(img);
-                        let outputBuffer;
-                        try {
-                            outputBuffer = await convert({
-                                buffer: inputBuffer,
-                                format: 'JPEG',
-                                quality: 0.9
-                            });
-                        } catch (err) {
-                            console.error("ERROR converting HEIC image to jpg", err);
+                        const imageInfo = await this.pojo.loadDailyNoteImageFile(img);
+                        if (!imageInfo.inputBuffer || imageInfo.status !== "success") {
                             retobj.success = false;
-                            retobj.failures.push(img)
-                        }
-                        if (outputBuffer) {
-                            if (!await this.pojo.writeDailyNoteImageFile(img, outputBuffer)) {
+                            retobj.failures.push({ refnote: refnote, image: imageInfo.imagefile, error: "NO IMAGE FOUND", info: imageInfo.status });
+                        } else {
+                            let outputBuffer;
+                            try {
+                                outputBuffer = await convert({
+                                    buffer: imageInfo.inputBuffer,
+                                    format: 'JPEG',
+                                    quality: 0.9
+                                });
+                            } catch (err) {
+                                console.error("ERROR converting HEIC image to jpg", err);
                                 retobj.success = false;
-                                retobj.failures.push(img)
-                            } else {
-                                nCount++;
+                                retobj.failures.push({ refnote: refnote, image: imageInfo.imagefile, error: "Error converting HEIC image. " + err.message });
+                            }
+                            if (outputBuffer) {
+                                if (!await this.pojo.writeDailyNoteImageFile(img, outputBuffer)) {
+                                    retobj.success = false;
+                                    retobj.failures.push({ refnote: refnote, image: img.imagename, error: "Could not write HEIC converted file." });
+                                } else {
+                                    nCount++;
+                                }
                             }
                         }
                     } else {
                         // Need to COPY
-                        if (!await this.pojo.copyDailyNoteImageFile(img)) {
+                        const imagestat = await this.pojo.copyDailyNoteImageFile(img);
+                        if (imagestat.status !== "success") {
                             retobj.success = false;
-                            retobj.failures.push(img);
+                            retobj.failures.push({ refnote: refnote, image: imagestat.imagefile, error: imagestat.status });
                         } else {
                             nCount++;
                         }
@@ -339,28 +460,26 @@ export class PojoConvert {
 
         if (bProcessed) {
             // Name should be of the form "YYYY-MM-DD dow ⚡" when returned.
-            if (lastchar == "⚡") {
-                if (dailynotename) {
-                    return dailynotename + " ⚡." + a[1];
-                } else {
-                    return filename;
-                }
+            if (dailynotename) {
+                return dailynotename + " ⚡." + a[1];
             } else {
-                if (dailynotename) {
-                    return dailynotename + " ⚡." + a[1];
+                if (lastchar == "⚡") {
+                    return filename;
                 } else {
                     return a[0] + " ⚡." + a[1];
                 }
             }
         } else {
             // Name should be of the form "YYYY-MM-DD dow" when returned.
-            if (lastchar == "⚡") {
-                if (dailynotename) {
-                    return dailynotename + "." + a[1];
-                } else {
+            if (dailynotename) {
+                return dailynotename + "." + a[1];
+            } else {
+                if (lastchar == "⚡") {
                     // Remove last two chars.
                     const newname = a[0].slice(0, a[0].length - 2);
                     return newname + "." + a[1];
+                } else {
+                    return filename;
                 }
             }
         }
@@ -443,8 +562,9 @@ export class PojoConvert {
             //                break;
             case 'Header':
                 key = "H" + el.depth;
-                if (el.children && el.children.length == 1 && el.children[0].type == "Str") {
-                    const v = el.children[0].value;
+                //                if (el.children && el.children.length == 1 && el.children[0].type == "Str") {
+                if (el.children && el.children.length == 1) {
+                    const v = el.children[0].value ? el.children[0].value : el.children[0].raw;
                     values = v.split("\n");
                 } else {
                     this.logError("Unexpected Header type", el);
@@ -455,6 +575,7 @@ export class PojoConvert {
                 key = "P";
                 values = ["___"];
                 break;
+            case 'BlockQuote':
             case 'Paragraph':
             case 'CodeBlock':
                 key = "P";
@@ -705,7 +826,7 @@ export class PojoConvert {
         return true;
     }
 
-    private createMOCFiles (bOverwrite: boolean) {
+    private createMOCFilesDEPRECATED (bOverwrite: boolean) {
 
         const self = this;
         const _getMOCcontent = function (moctype: string): object {
@@ -1450,10 +1571,12 @@ export class PojoConvert {
         }
     }
 
-    private async writeOutMetadataRecords (newrecords: object[]) {
+    private async writeOutMetadataRecords (dailynotefile: string, newrecords: object[]) {
 
         const self = this;
-        this.pojo.logDebug("writeOutMetadataRecords here...", newrecords);
+        const dailynoteref = dailynotefile.split(".")[0];
+        //        console.log("writeOutMetadataRecords " + dailynoteref, newrecords);
+        this.pojo.logDebug("writeOutMetadataRecords here... " + dailynotefile, newrecords);
         let rcount = 1;
 
 
@@ -1461,15 +1584,26 @@ export class PojoConvert {
 
             const md = [];
             md.push("---");
+            md.push("Daily Note: " + dailynoteref);
             md.push("Database: " + record.Database);
             md.push("Date: " + record.Date);
-            md.push(`${typename}: ${record[typename]}`);
+            md.push(`Type: ${record[typename]}`);
+            if (typename !== "Type") {
+                md.push(`${typename}: ${record[typename]}`);
+            }
             if (rparams && rparams.length > 0) {
                 for (const pname of rparams) {
-                    const pvalue = record[pname];
-                    md.push(`${pname}: ${pvalue}`);
+                    if (pname !== typename) {
+                        const pvalue = record[pname];
+                        md.push(`${pname}: ${pvalue}`);
+                    }
                 }
             }
+            let contentStatus = "NO";
+            if (record.Description) {
+                contentStatus = "YES";
+            }
+            md.push("Description: " + contentStatus);
             md.push("---");
             if (record.Description) {
                 md.push("");

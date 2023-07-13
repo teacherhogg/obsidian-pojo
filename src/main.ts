@@ -1,11 +1,10 @@
-import { EditorPosition, KeymapContext, MarkdownView, Plugin, TFile, } from "obsidian";
+import { EditorPosition, KeymapContext, MarkdownView, Plugin, Platform } from "obsidian";
 import SnippetManager from "./snippet_manager";
 import SuggestionPopup, { SelectionDirection } from "./popup";
 import { PojoSettings, DEFAULT_SETTINGS } from "./settings";
 import PojoSettingsTab from "./settings_tab";
 import { EditorView, ViewUpdate } from "@codemirror/view";
 import { editorToCodeMirrorState, posFromIndex } from "./editor_helpers";
-import { markerStateField } from "./marker_state_field";
 import { Pojo } from "./provider/pojo_provider";
 
 export default class PojoPlugin extends Plugin {
@@ -17,7 +16,14 @@ export default class PojoPlugin extends Plugin {
     private _suggestionPopup: SuggestionPopup;
 
     async onload () {
-        this.statusbar = this.addStatusBarItem();
+        const platform = Platform;
+
+        if (platform.isDesktop) {
+            this.statusbar = this.addStatusBarItem();
+        } else {
+            this.statusbar = null;
+        }
+
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         this.settings.version_manifest = this.manifest.version;
         if (this.settings.frontmatter_always_add) {
@@ -47,6 +53,13 @@ export default class PojoPlugin extends Plugin {
         if ((this.app.vault as any).config?.legacyEditor) {
             console.log("Pojo: Without Live Preview enabled, most features of Pojo will not work properly!");
         }
+    }
+
+    private setupCommandsTEMP () {
+        // POJO Action Dialog
+        this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
+            Pojo.pojoZap(this.app, false, this.statusbar);
+        })
     }
 
     private setupCommands () {

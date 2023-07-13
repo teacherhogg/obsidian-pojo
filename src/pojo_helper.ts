@@ -62,6 +62,112 @@ export class PojoHelper {
         return this.vault.configDir + "/plugins/obsidian-pojo";
     }
 
+    async saveConversionLogFile (infoobj: object) {
+
+        const logfile = [];
+        const _addToLog = function (line: string) {
+            logfile.push(line);
+        }
+
+
+        const now = new Date();
+        const nowinfo = now.toDateString() + " " + now.valueOf();
+
+        const _getItemString = function (note: string, type: string, item: object): string {
+
+            let msg;
+            if (type == "error") {
+                msg = "❌ ";
+            } else if (type == "warn") {
+                msg = "⚠ ";
+            } else {
+                msg = "✔ ";
+            }
+            msg += note;
+
+            const _parseItem = function (key, val) {
+                if (val == null) {
+                    msg += ` ${key}:`
+                } else if (typeof val === 'object') {
+                    msg += ` (${key}:`;
+                    for (const key2 in val) {
+                        _parseItem(key2, val[key2]);
+                    }
+                    msg += ')';
+                } else if (Array.isArray(val)) {
+                    msg += ` [${key}:`
+                    let index = 1;
+                    for (const aitem of val) {
+                        _parseItem(index, aitem);
+                        index++;
+                    }
+                    msg += ']';
+                } else {
+                    msg += ` ${key}: ${val}`;
+                }
+            }
+
+            if (item) {
+                for (const key in item) {
+                    _parseItem(key, item[key]);
+                }
+            }
+            return msg;
+        }
+
+        _addToLog("## Conversion Summary");
+        _addToLog("");
+
+        let msgend = ""
+        const nSuccess = Object.keys(infoobj.success).length;
+        if (nSuccess > 0) {
+            if (nSuccess == 1) { msgend = " note." } else { msgend = " notes." }
+            _addToLog("Succesfully processed " + nSuccess + msgend);
+        }
+        const nFailure = Object.keys(infoobj.failure).length;
+        if (nFailure > 0) {
+            if (nFailure == 1) { msgend = " failure encountered." } else { msgend = " failures encountered." }
+            _addToLog(nFailure + msgend)
+        }
+        const nWarning = Object.keys(infoobj.warning).length;
+        if (nWarning > 0) {
+            if (nWarning == 1) { msgend = " warning encountered." } else { msgend = " warnings encountered." }
+            _addToLog(nWarning + msgend);
+        }
+        _addToLog("");
+        _addToLog(this.getPlatformInfo());
+
+
+        let note;
+        if (nFailure > 0) {
+            _addToLog("");
+            _addToLog("## Failures");
+            _addToLog("");
+            for (note in infoobj.failure) {
+                const failobj = infoobj.failure[note];
+                const msg = _getItemString(note, "error", failobj);
+                _addToLog(msg);
+
+            }
+        }
+
+        if (nWarning > 0) {
+            _addToLog("");
+            _addToLog("## Warnings");
+            _addToLog("");
+            for (note in infoobj.warning) {
+                const warnobj = this.infoobj.warning[note];
+                const msg = _getItemString(note, "warn", warnobj);
+                _addToLog(msg);
+            }
+        }
+
+        const foldername = generatePath(this.settings.folder_pojo, this.settings.subfolder_logs);
+        const filename = nowinfo + ".md";
+
+        await this.createVaultFile(logfile.join("\n"), foldername, filename, false);
+    }
+
     async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean) {
 
         // First check if folder exists in vault.
@@ -234,7 +340,7 @@ export class PojoHelper {
             for (const fobj of dbfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
                 this.logDebug("Get Markdown Info", fname.path);
-                const fm = await this.getMarkdownFileInfo(fname);
+                const fm = await this.getMarkdownFileInfo(fname, false);
                 if (fm) {
                     this.logDebug("FMINFO ", fm);
                     const dbname = fm._database.database;
@@ -262,8 +368,45 @@ export class PojoHelper {
         return true;
     }
 
-    getDatabases (): string[] {
-        return this.pojoDatabases;
+    getDatabases (bDetailed: boolean): string[] {
+        if (bDetailed) {
+            return this.loadedPojoHistory;
+        } else {
+            return this.pojoDatabases;
+        }
+    }
+
+    async getMOCTemplates (): Promise<object> | null {
+        const mtpath = generatePath(this.settings.folder_pojo, this.settings.subfolder_templates);
+        const mtfolder = this.vault.getAbstractFileByPath(mtpath) as TFolder;
+        if (!mtfolder) {
+            this.logError("ERROR - moc template folder is NOT FOUND!", mtpath);
+            return null;
+        }
+
+        const pojoMT = {};
+        if (mtfolder && mtfolder.children) {
+            for (const fobj of mtfolder.children) {
+                const fname = this.vault.getAbstractFileByPath(fobj.path);
+                this.logDebug("Get Markdown Info", fname.path);
+                const finfo = await this.getMarkdownFileInfo(fname, true);
+                // finfo.content finfo.frontmatter
+                if (finfo && finfo.frontmatter && finfo.frontmatter.Category) {
+                    this.logDebug("FMINFO ", finfo);
+                    const catname = finfo.frontmatter.Category;
+                    pojoMT[catname] = finfo.frontmatter;
+                    pojoMT[catname].content = finfo.content;
+                } else {
+                    this.logError("ERROR in MOC Template file " + fobj.path, finfo);
+                    console.error("ERROR in MOC Template file " + fobj.path, finfo);
+                }
+            }
+        } else {
+            this.logError("ERROR on mtfolder eh?");
+            return null;
+        }
+
+        return pojoMT;
     }
 
     displayMetaMeta (pname, pvalue) {
@@ -540,33 +683,48 @@ export class PojoHelper {
         return await this.vault.adapter.exists(attachment);
     }
 
-    async loadDailyNoteImageFile (imageinfo: object): Promise<any> {
+    async loadDailyNoteImageFile (imageinfo: object): Promise<object> {
 
-        let data = null;
 
         // First find the image file.
         const imagefile = generatePath(this.settings.folder_daily_notes, imageinfo.imagedir, imageinfo.imagesource);
+        const retobj = {
+            imagefile: imagefile,
+            data: null,
+            status: "success"
+        }
+
         if (!await this.vault.adapter.exists(imagefile)) {
-            console.error("ERROR finding image fileL " + imagefile, imageinfo);
-            return data;
+            console.error("ERROR finding image file " + imagefile, imageinfo);
+            retobj.status = "NOT FOUND";
+            return retobj;
         }
 
         try {
-            data = await this.vault.adapter.read(imagefile);
+            retobj.data = await this.vault.adapter.read(imagefile);
         } catch (err) {
             console.error("ERROR reading source file", imagefile, err);
-            return data;
+            retobj.status = err.message;
+            return retobj;
         }
 
-        return data;
+        return retobj;
     }
 
-    async copyDailyNoteImageFile (imageinfo: object, bCleanup: boolean): Promise<boolean> {
+    async copyDailyNoteImageFile (imageinfo: object, bCleanup: boolean): Promise<object> {
         // First find the image file.
         const imagefile = generatePath(this.settings.folder_daily_notes, imageinfo.imagedir, imageinfo.imagename);
+
+        const retobj = {
+            status: "success",
+            imagefile: imagefile
+        }
+
         if (!await this.vault.adapter.exists(imagefile)) {
             console.error("ERROR finding image fileL " + imagefile, imageinfo);
-            return false;
+            // Does not exist
+            retobj.status = "NO IMAGE FOUND";
+            return retobj;
         }
 
         // Copy
@@ -575,7 +733,8 @@ export class PojoHelper {
             await this.vault.adapter.copy(imagefile, targetfile);
         } catch (err) {
             console.error("ERROR copying file", imagefile, targetfile, err);
-            return false;
+            retobj.status = "Error copying image. " + err.message;
+            return retobj;
         }
 
         // Delete source file and folder 
@@ -583,7 +742,7 @@ export class PojoHelper {
             console.log("TODO - cleanup stuff!!!");
         }
 
-        return true;
+        return retobj;
     }
 
     async writeDailyNoteImageFile (imageinfo: object, outputBuffer: ArrayBuffer): Promise<boolean> {
@@ -664,33 +823,50 @@ export class PojoHelper {
     }
 */
 
-    async getMarkdownFileInfo (mfile: TFile): object | null {
-        /*        let content;
-                try {
-                    content = await this.vault.read(mfile);
-                } catch (err) {
-                    this.logError("ERROR reading file ", mfile.path);
-                    this.logError("Error", err);
-                    return null;
-                }
-        */
+    async getMarkdownFileInfo (mfile: TFile, bContentAlso: boolean): object | null {
+        // Returns file frontmatter ONLY if bContent is false.
+        let content;
+        if (bContentAlso) {
+            try {
+                content = await this.vault.read(mfile);
+            } catch (err) {
+                this.logError("ERROR reading file ", mfile.path);
+                this.logError("Error", err);
+                return null;
+            }
+        }
+        //        console.log("HERE is the file content", content);
 
         let frontmatter = {};
+        let bodytext = "";
         try {
 
-            frontmatter = this.app.metadataCache.getFileCache(mfile)?.frontmatter;
-            // position gets added by obsidian to frontmatter. Remove.
-            if (frontmatter.position) {
-                delete frontmatter.position;
+            const filecontent = this.app.metadataCache.getFileCache(mfile);
+            frontmatter = filecontent?.frontmatter;
+
+
+            if (bContentAlso) {
+                let endfm = 0;
+                if (filecontent.sections && filecontent.sections[0] && filecontent.sections[0].type == "yaml") {
+                    // Remove the frontmatter.
+                    endfm = filecontent.sections[0].position.end.line + 1;
+                }
+                bodytext = content.split("\n").slice(endfm).join("\n");
             }
-            //            const filematter = matter(content);
-            //            frontmatter = filematter.data;
         } catch (err) {
             this.logError("ERROR extracting frontmatter " + mfile.path);
             this.logError("ERROR reading file contents ", err);
             return null;
         }
-        return frontmatter;
+
+        if (bContentAlso) {
+            return {
+                frontmatter: frontmatter,
+                content: bodytext
+            }
+        } else {
+            return frontmatter;
+        }
     }
 
     addToHistoryFromLine (line: string): boolean {
@@ -1059,8 +1235,7 @@ export class PojoHelper {
                 if (aparams) {
                     if (aparams.length > dbinfo.params.length) {
                         this.logError("ERROR in tag params. More than expected for tag ");
-                        this.logError("HERE IS APARAMS", aparams);
-                        this.logError("HERE IS DBINFO", dbinfo);
+                        this.logError("Problem line content: " + roline);
                         return null;
                     } else {
                         let pnum = 0;

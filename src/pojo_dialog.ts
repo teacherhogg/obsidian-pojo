@@ -103,12 +103,12 @@ export class PojoZap extends Modal {
                         //                        this.pojo.saveHistory(this.app.vault, newhistory);
 
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
-                        const retval = await convert.convertDailyNote(this.currentFile, imageactions);
-                        console.log("Conversion Completed.", retval);
 
-                        let msg = retval.msg;
+                        const dailyFiles = [this.currentFile];
+                        let retobj = await self.convertDailyNotes(convert, dailyFiles, false, false);
+                        console.log("convertDailyNotes Completed.", retobj);
 
-                        if (retval.type == "noconvert_alreadyconverted") {
+                        if (retobj.status == "noconvert_alreadyconverted") {
                             new ConfirmationModal(
                                 this.app,
                                 "Conversion Already Done",
@@ -117,46 +117,15 @@ export class PojoZap extends Modal {
                                     .setButtonText("Proceed with Conversion ANYWAY")
                                     .setWarning(),
                                 async () => {
-                                    console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ")
-                                    const retval = await convert.convertDailyNote(this.currentFile, imageactions, true);
-                                    console.log("Second Conversion Completed.", retval);
-                                    let msg = retval.msg;
 
-                                    const iret = await convert.manageImages(imageactions);
-                                    console.log("manageImages returned", iret);
-
-                                    if (!iret.success) {
-                                        msg += " Failure to copy " + iret.failures.length + " images: ";
-                                        for (const val of iret.failures) {
-                                            msg += " " + val.imagesource;
-                                        }
-                                    }
-
-                                    new InformationModal(
-                                        this.app,
-                                        "Conversion completed with code: " + retval.type,
-                                        msg
-                                    ).open();
+                                    console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ");
+                                    retobj = await self.convertDailyNotes(convert, dailyFiles, false, true)
+                                    console.log("Second Conversion Completed.", retobj);
+                                    self.dailyNoteCompletion(retobj, self.pojo, false);
 
                                 }).open();
                         } else {
-                            console.log("NEED to deal with imageactions!", imageactions);
-
-                            const iret = await convert.manageImages(imageactions);
-                            console.log("manageImages returned", iret);
-
-                            if (!iret.success) {
-                                msg += " Failure to copy " + iret.failures.length + " images: ";
-                                for (const val of iret.failures) {
-                                    msg += " " + val.imagesource;
-                                }
-                            }
-
-                            new InformationModal(
-                                this.app,
-                                "Conversion completed with code: " + retval.type,
-                                msg
-                            ).open();
+                            self.dailyNoteCompletion(retobj, self.pojo, false);
                         }
 
                     })
@@ -168,84 +137,22 @@ export class PojoZap extends Modal {
                     .setButtonText("Convert ALL Daily Notes")
                     .onClick(async () => {
                         console.log('Convert ALL DAILY NOTES', self.pojo);
-                        console.log('Settings', self.settings);
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
-
-                        if (!self.settings.folder_daily_notes) {
-                            this.logError("MISSING import folder in this.settings file.")
-                            return false;
-                        }
                         const dailyFiles = convert.getInputFiles(self.settings.folder_daily_notes);
-
-                        const statsuffix = "/" + dailyFiles.length + "⚡";
-                        let nSuccess = 0;
-                        let nFailure = 0;
-                        let nDone = 0;
-
-                        const _getStatusText = function () {
-                            return nSuccess + "✔ " + nFailure + "❌ " + nDone + statsuffix;
-                        }
-
-                        let statmsg1 = self.statusbar.createEl("span", { text: _getStatusText() });
-                        console.log("Number of files to import: " + dailyFiles.length);
-                        const imageactions = [];
-                        const conversionInfo = {
-                            "success": [],
-                            "failure": []
-                        };
-
-
-                        for (const dfile of dailyFiles) {
-                            self.pojo.errorStack(true);
-                            const retval = await convert.convertDailyNote(dfile, imageactions, false, true);
-                            nDone++;
-                            const filename = dfile.basename + "." + dfile.extension;
-                            //                            console.log("Conversion " + filename, retval, dfile);
-                            if (retval.type == "noconvert_empty") {
-                                console.error("Skipped file " + filename + " as it is empty.");
-                                conversionInfo.failure.push({ file: filename, errors: self.pojo.errorStack() });
-                                nFailure++;
-                            }
-                            else if (retval.type !== "success") {
-                                console.error("COULD NOT CONVERT as encountered error on " + filename, retval);
-                                conversionInfo.failure.push({ file: filename, errors: self.pojo.errorStack() });
-                                nFailure++;
-                            } else {
-                                //                                console.log("Converted file " + filename);
-                                conversionInfo.success.push(filename);
-                                nSuccess++;
-                            }
-                            statmsg1.remove();
-                            statmsg1 = self.statusbar.createEl("span", { text: _getStatusText() });
-                        }
-
-                        const iret = await convert.manageImages(imageactions);
-                        console.log("manageImages returned", iret);
-
-                        let msg = nSuccess + " notes converted successfully. ";
-
-                        if (iret.ncount) {
-                            msg += " Successfully copied " + iret.ncount + " images.";
-                        }
-
-                        if (!iret.success) {
-                            msg += " Failure to copy " + iret.failures.length + "  images: ";
-                            for (const val of iret.failures) {
-                                msg += " " + val.imagesource;
-                            }
-                        }
-
-                        console.log("NEED to deal with imageactions", imageactions);
-                        console.log("CONVERSION FINISHED", conversionInfo);
-
-                        new InformationModal(
-                            this.app,
-                            "Conversion completed",
-                            msg
-                        ).open();
+                        const retobj = await self.convertDailyNotes(convert, dailyFiles, true, false);
+                        self.dailyNoteCompletion(retobj, self.pojo, true);
                     })
             )
-
+            .addButton((btn) =>
+                btn
+                    .setButtonText("Create or Update MOCs")
+                    .onClick(async () => {
+                        console.log('MOC Updates', self.pojo);
+                        const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
+                        const retobj = await convert.createMOCFiles(false);
+                        console.log("DONE MOC FER NOW", retobj, true);
+                    })
+            )
         /*
         if (this.history.history_editors) {
 
@@ -289,6 +196,119 @@ export class PojoZap extends Modal {
     onClose () {
         const { contentEl } = this;
         contentEl.empty();
+    }
+
+    async dailyNoteCompletion (retobj: object, pojo: object, bWriteLogs: boolean) {
+        console.log("COMPLETED CONVERSOINS ", retobj);
+
+        // Write out a status log of the conversion.
+        if (bWriteLogs) {
+            await pojo.saveConversionLogFile(retobj);
+        }
+
+        // Open Dialog with conversoin complete
+        new DailyNoteConversionComplete(
+            this.app,
+            retobj
+        ).open();
+    }
+
+    async convertDailyNotes (convert, dailyFiles, bConvertAllNotes, bConvertAgain) {
+
+        const self = this;
+        const statsuffix = "/" + dailyFiles.length + "⚡";
+        let nSuccess = 0;
+        let nFailure = 0;
+        let nWarning = 0;
+        let nDone = 0;
+
+        const _getStatusText = function () {
+            return nSuccess + "✔ " + nFailure + "❌ " + nWarning + "⚠ " + nDone + statsuffix;
+        }
+
+        let statmsg1;
+        if (self.statusbar) {
+            statmsg1 = self.statusbar.createEl("span", { text: _getStatusText() });
+        }
+        console.log("Number of files to import: " + dailyFiles.length);
+        const imageactions = {};
+        const returnObject = {
+            status: "done",
+            msg: "DONE",
+            success: {},
+            failure: {},
+            warning: {},
+            missing: {}
+        };
+
+        let lastmsg;
+        for (const dfile of dailyFiles) {
+            self.pojo.errorStack(true);
+            const retval = await convert.convertDailyNote(dfile, imageactions, bConvertAgain, bConvertAllNotes);
+            lastmsg = retval.msg;
+
+            nDone++;
+            const filename = dfile.basename + "." + dfile.extension;
+
+            if (retval.type == "noconvert_alreadyconverted") {
+                if (bConvertAllNotes) {
+                    // Something strange going on if this error is encountered when doing a convert all notes.
+                    console.error("Error as saying Already converted.", filename);
+                    returnObject.failure[filename] = { errors: self.pojo.errorStack(), type: retval.type };
+                    nFailure++;
+                } else {
+                    console.log("Already converted.", filename);
+                    returnObject.msg = retval.msg;
+                    returnObject.status = retval.type;
+                    return returnObject;
+                }
+            }
+            else if (retval.type == "noconvert_empty") {
+                console.error("Skipped file " + filename + " as it is empty.");
+                returnObject.failure[filename] = { errors: self.pojo.errorStack(), type: retval.type };
+                nFailure++;
+            }
+            else if (retval.type !== "success") {
+                console.error("COULD NOT CONVERT as encountered error on " + filename, retval);
+                returnObject.failure[filename] = { errors: self.pojo.errorStack(), type: retval.type };
+                nFailure++;
+            } else {
+                const warns = self.pojo.errorStack();
+                if (warns && warns.length > 0) {
+                    returnObject.warning[filename] = { errors: warns, type: retval.type };
+                    nWarning++;
+                } else {
+                    returnObject.success[filename] = { type: retval.type };
+                    nSuccess++;
+                }
+            }
+
+            if (self.statusbar) {
+                statmsg1.remove();
+                statmsg1 = self.statusbar.createEl("span", { text: _getStatusText() });
+            }
+        }
+
+        const iret = await convert.manageImages(imageactions);
+        console.log("manageImages returned", iret);
+
+        if (!iret.success) {
+            for (const valobj of iret.failures) {
+                if (!returnObject.failure[valobj.refnote]) {
+                    returnObject.failure[valobj.refnote] = {};
+                }
+                if (!returnObject.failure[valobj.refnote].images) {
+                    returnObject.failure[valobj.refnote].images = [];
+                }
+                returnObject.failure[valobj.refnote].images.push({
+                    status: valobj.error,
+                    image: valobj.image
+                });
+            }
+        }
+
+        returnObject.msg = lastmsg;
+        return returnObject;
     }
 }
 
@@ -604,6 +624,120 @@ export class DatabaseReview extends Modal {
                         self.close();
                     })
             )
+    }
+
+    onClose () {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
+
+class DailyNoteConversionComplete extends Modal {
+    private app: App;
+    private infoobj: object;
+
+    constructor(app: App, infoobj: object) {
+        super(app);
+        this.app = app;
+        this.infoobj = infoobj;
+    }
+
+    async onOpen () {
+        this.display();
+    }
+
+    private getItemString (note: string, type: string, item: object): string {
+
+        let msg;
+        if (type == "error") {
+            msg = "❌ ";
+        } else if (type == "warn") {
+            msg = "⚠ ";
+        } else {
+            msg = "✔ ";
+        }
+        msg += note;
+
+        const _parseItem = function (key, val) {
+            if (val == null) {
+                msg += ` ${key}:`
+            } else if (typeof val === 'object') {
+                msg += ` (${key}:`;
+                for (const key2 in val) {
+                    _parseItem(key2, val[key2]);
+                }
+                msg += ')';
+            } else if (Array.isArray(val)) {
+                msg += ` [${key}:`
+                let index = 1;
+                for (const aitem of val) {
+                    _parseItem(index, aitem);
+                    index++;
+                }
+                msg += ']';
+            } else {
+                msg += ` ${key}: ${val}`;
+            }
+        }
+
+        if (item) {
+            for (const key in item) {
+                _parseItem(key, item[key]);
+            }
+        }
+        return msg;
+    }
+
+    private display () {
+        const self = this;
+        const { contentEl } = this;
+
+        let msg = "";
+        let msgend = ""
+        const nSuccess = Object.keys(this.infoobj.success).length;
+        if (nSuccess > 0) {
+            if (nSuccess == 1) { msgend = " note." } else { msgend = " notes." }
+            msg = "Succesfully processed " + nSuccess + msgend;
+        }
+        const nFailure = Object.keys(this.infoobj.failure).length;
+        if (nFailure > 0) {
+            if (nFailure == 1) { msgend = " failure encountered." } else { msgend = " failures encountered." }
+            msg += " " + nFailure + msgend;
+        }
+        const nWarning = Object.keys(this.infoobj.warning).length;
+        if (nWarning > 0) {
+            if (nWarning == 1) { msgend = " warning encountered." } else { msgend = " warnings encountered." }
+            msg += " " + nWarning + msgend;
+        }
+
+        this.contentEl.empty();
+        new Setting(contentEl)
+            .setName("Daily Note Conversion Completed")
+            .setDesc(msg)
+
+        if (nFailure > 0 || nWarning > 0) {
+            new Setting(contentEl)
+                .setName("Errors Encountered:");
+
+            const errDiv = contentEl.createDiv();
+            let note;
+            for (note in this.infoobj.failure) {
+                const failobj = this.infoobj.failure[note];
+                const msg = self.getItemString(note, "error", failobj);
+                errDiv.createEl("div", { text: msg });
+
+            }
+            errDiv.createEl("hr");
+
+            const warnDiv = contentEl.createDiv();
+            for (note in this.infoobj.warning) {
+                const warnobj = this.infoobj.warning[note];
+                const msg = self.getItemString(note, "warn", warnobj);
+                warnDiv.createEl("div", { text: msg });
+            }
+            warnDiv.createEl("hr");
+
+        }
     }
 
     onClose () {
