@@ -1,4 +1,4 @@
-import { Vault, TFile, App } from "obsidian";
+import { Vault, TFile, App, getAllTags, stringifyYaml, parseYaml } from "obsidian";
 import { parse } from "@textlint/markdown-to-ast";
 import { PojoSettings, generatePath } from "./settings";
 import * as path from "path";
@@ -47,7 +47,8 @@ export class PojoConvert {
         }
         console.log("MOCTEMPLATES", mocTemplates);
 
-        console.log()
+        // Get the tag summaries
+        const tagSummary = await this.getTaggedFiles(this.settings.folder_daily_notes, true);
 
         const info = {
             mocCount: 0,
@@ -57,15 +58,16 @@ export class PojoConvert {
         }
         const dbs = this.pojo.getDatabases(true);
         console.log("HERE ARE databases", dbs);
+
         for (const db in dbs.databases) {
-            const mret = await this.createMOCFile(db, dbs.databases[db], mocTemplates, info);
+            const mret = await this.createMOCFile(db, dbs.databases[db], mocTemplates, tagSummary, info);
         }
 
         return info;
     }
 
-    async createMOCFile (dbname: string, dbdata: object, templates: object, info: object): Promise<object> {
-        console.log("createMOC Files for " + dbname, dbdata);
+    async createMOCFile (dbname: string, dbdata: object, templates: object, tagsummary: object, info: object): Promise<object> {
+        //        console.log("createMOC Files for " + dbname, dbdata);
         const self = this;
         const dbinfo = dbdata._database;
         const typekey = dbinfo.type;
@@ -74,72 +76,283 @@ export class PojoConvert {
         // Get params array without last param (which is always Description).
         const sparams = dbinfo.params.slice(0, -1);
 
-        const _getMOCFilename = function (mname: string): string {
-            if (info.mocNames[mname]) {
-                // Collision!
-                info.mocNames[mname]++;
-                info.mocCollisions.push(mname);
-                return "CMOC-" + mname + ".md";
+        const _initMOCFile = async function (mname: string): Promise<object> {
+
+            const mocFileName = mname.replace(/[^a-zA-Z0-9\-_ ]/g, '') + ".md";
+            let mocFileInfo = null;
+
+            if (info.mocNames[mocFileName]) {
+                // Collision! This means the same mocname has been used before.
+                info.mocNames[mocFileName]++;
+                info.mocCollisions.push(mocFileName);
+                const mocFile = generatePath(self.settings.folder_moc, mocFileName);
+                const mocFileRef = self.vault.getAbstractFileByPath(mocFile) as TFile;
+                mocFileInfo = await self.pojo.getMarkdownFileInfo2(mocFileRef, true);
+                //                console.log("mocFileInfo2 returns", mocFileInfo);
+                if (!mocFileInfo) {
+                    console.error("SOMETHING WRONG! Missing existing MOC file.", mocExistingFile);
+                    self.logError("Collision with MOC, but existing moc not found! " + mocFileName, mocExistingFile);
+                    mocFileInfo = null;
+                }
             } else {
-                info.mocNames[mname] = 1;
-                return mname + ".md";
+                info.mocNames[mocFileName] = 1;
             }
+
+            //            console.log("HERE Is returned for " + mocFileName, mocFileInfo);
+            return { mocFileName, mocFileInfo };
         }
 
-        const _getMOCfrontmatter = function (moctype: string, filterkey?: string, filtervalue?: string): string[] {
+        const _addMOCtablesFM = function (fmobj: object, moctype: string, filterkey?: string, filtervalue?: string, subfilterkey?: string, subfiltervalue?: string) {
+            const tobj = {
+                viewparams: sparams,
+                filterkey: filterkey,
+                filtervalue: filtervalue,
+                database: dbname,
+            }
+            if (subfilterkey) {
+                tobj.subfilterkey = subfilterkey;
+                tobj.subfiltervalue = subfiltervalue;
+            }
+
+            if (!fmobj.tables) {
+                fmobj.tables = [];
+            }
+            fmobj.tables.push(tobj);
+        }
+
+
+        const _getMOCfrontmatter = function (moctype: string, filterkey?: string, filtervalue?: string, subfilterkey?: string, subfiltervalue?: string): object {
 
             const fm = [];
-            fm.push("---");
+
+            const vps = [];
+            for (const vp of sparams) {
+                vps.push(vp);
+            }
+            const vpval = vps.join(",");
+
+            //            fm.push("---");
             if (self.settings.frontmatter_always_add_moc) {
                 for (const line of self.settings.frontmatter_always_add_moc) {
                     fm.push(line);
                 }
             }
-            fm.push(`database: ${dbname}`);
             fm.push(`metadata: ${metadatafolder}`);
             fm.push(`Category: ${moctype}`);
             if (moctype == 'MOC-database') {
-                fm.push(`viewparams: ${sparams}`);
-            } else if (moctype == 'MOC-param') {
-                fm.push(`viewparams: ${sparams}`);
-                //                fm.push(`filterkey: ${param}`);
-            } else if (moctype == 'MOC-type-value') {
-                const vps = [];
-                for (const vp of sparams) {
-                    vps.push(vp);
-                }
-                const vpval = vps.join(",");
+                fm.push(`viewparams: [${vpval}]`);
+                fm.push(`database: ${dbname}`);
+            } else if (moctype == 'MOC-filtered') {
+                fm.push(`database: ${dbname}`);
                 fm.push(`viewparams: [${vpval}]`);
                 fm.push(`filterkey: ${filterkey}`);
                 fm.push(`filtervalue: ${filtervalue}`);
+                if (subfilterkey) {
+                    fm.push(`subfilterkey: ${subfilterkey}`);
+                    fm.push(`subfiltervalue: ${subfiltervalue}`);
+                }
+            } else if (moctype == 'MOC-multi') {
+                const tobj = {
+                    viewparams: sparams,
+                    filterkey: filterkey,
+                    filtervalue: filtervalue,
+                    database: dbname,
+                }
+                if (subfilterkey) {
+                    tobj.subfilterkey = subfilterkey;
+                    tobj.subfiltervalue = subfiltervalue;
+                }
+
+                fm.push(`tables: [${JSON.stringify(tobj)}]`);
+
             } else {
                 this.exitNow(["Unknown MOC Type " + moctype]);
             }
 
-            fm.push("---");
-            return fm.join("\n");
+            //            fm.push("---");
+
+            const fmobj = parseYaml(fm.join("\n"));
+            //            console.log("HERe is the frontmatter", fmobj, fm);
+            return fmobj;
+        }
+
+        const _createMOCTableHeader = function (dbname: string, filterkey: string, filtervalue: string, subfilterkey: string, subfiltervalue: string) {
+
+            const head = [];
+
+            const _addHeader = function (headername: string) {
+                head.push("");
+                head.push(`## ${headername}`);
+                head.push(`> [!info] ${headername}`);
+                head.push(`> Database: ${dbname}`);
+                if (subfilterkey) {
+                    head.push(`> ${filterkey}: ${filtervalue}`);
+                    head.push(`> ${subfilterkey}: ${subfiltervalue}`);
+                } else if (filterkey) {
+                    head.push(`> ${filterkey}: ${filtervalue}`);
+                }
+                head.push("");
+            }
+
+            if (!filterkey) {
+                _addHeader(dbname);
+            }
+            else if (subfilterkey) {
+                const hname = `${subfiltervalue} (${dbname} -> ${filtervalue} -> ${subfilterkey})`;
+                _addHeader(hname);
+            }
+            else {
+                const hname = `${filtervalue} (${dbname} -> ${filterkey})`;
+                _addHeader(hname);
+            }
+
+            return head;
+        }
+
+        const _createMOC = async function (mocname: string, moctype: string, filterkey?: string, filtervalue?: string, subfilterkey?: string, subfiltervalue?: string) {
+
+            //            console.log(`_createMoc ${mocname} type ${moctype} [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
+
+            const { mocFileName, mocFileInfo } = await _initMOCFile(mocname);
+            //            console.log("returned from _initMocFile " + mocFileName, mocFileInfo);
+
+            let moc;
+            if (!mocFileInfo) {
+                // This MOC has not been created so far this time.
+                const fm = _getMOCfrontmatter(moctype, filterkey, filtervalue, subfilterkey, subfiltervalue);
+
+                moc = "---\n"
+                moc += stringifyYaml(fm);
+                moc += "---\n";
+
+                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
+                let newmoc = head.join("\n");
+                newmoc += "\n" + templates[moctype].contentstart;
+                newmoc += "\nlet tabledata = fm.tables[0]";
+                newmoc += "\n" + templates[moctype].contentend;
+
+                moc += newmoc;
+
+                info.mocCount++;
+            } else {
+                // MOC exists so we will ADD to it.
+                //                console.log("EXISTING MOC found for " + mocname, mocFileInfo);
+                _addMOCtablesFM(mocFileInfo.frontmatter, moctype, filterkey, filtervalue, subfilterkey, subfiltervalue);
+
+                moc = "---\n"
+                moc += stringifyYaml(mocFileInfo.frontmatter);
+                moc += "---\n";
+
+                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
+                let newmoc = mocFileInfo.content + "\n" + head.join("\n");
+
+                const tindex = info.mocNames[mocFileName] - 1;
+                newmoc += "\n" + templates[moctype].contentstart;
+                newmoc += `\nlet tabledata = fm.tables[${tindex}]`;
+                newmoc += "\n" + templates[moctype].contentend;
+
+                moc += newmoc;
+            }
+
+            //            console.log("Creating MOC file " + mocFileName);
+            await self.pojo.createVaultFile(moc, self.settings.folder_moc, mocFileName, !info.bCreateOnly);
+            //            console.log("Finished creating MOC file...");
+        }
+
+        const minMoc = this.settings.minEntriesForMoc;
+        const _mocOK = function (dbn: string, typeval: string, subtype?: string): boolean {
+            const mkey = subtype ? typeval + "_" + subtype : typeval;
+            if (!tagsummary[dbn]) {
+                console.error("ERROR getting summary for database " + dbn);
+                return false;
+            }
+            if (tagsummary[dbn][mkey] >= minMoc) {
+
+                //                console.log("MOC " + dbn + " > " + mkey + `(${tagsummary[dbn][mkey]})`);
+                return true;
+            }
+            return false;
         }
 
         // Create a Database MOC
-        let moc = _getMOCfrontmatter("MOC-database");
-        moc += "\n" + templates["MOC-database"].content;
-        let mocfilename = _getMOCFilename(dbname);
-        await this.pojo.createVaultFile(moc, this.settings.folder_moc, mocfilename, !info.bCreateOnly);
-        info.mocCount++;
+        //        console.log("CREATE DABASE MOC " + dbname);
+        await _createMOC(dbname, "MOC-database");
 
-        // Create a Type MOC
+        const _createMOCs = async function (mocname: string, moctype: string, multi: string, filterkey: string, filtervalue: string, subfilterkey?: string, subfiltervalue?: string) {
+            if (filtervalue && Array.isArray(filtervalue)) {
+                console.warn("NOT expecting this value to be an array!", filtervalue);
+            }
+            if (subfiltervalue && Array.isArray(subfiltervalue)) {
+                console.warn("NOT expecting this sub-value to be an array!", subfiltervalue);
+            }
 
+            let valsa = [filtervalue];
+            if (multi == "DASH" && filtervalue) {
+                valsa = filtervalue.split("-");
+            }
 
-        // Create a Type Value MOC
+            if (valsa.length > 1) {
+                console.warn("MULTIPLE TIMES..." + mocname, valsa);
+            }
+            for (const val of valsa) {
+                if (_mocOK(dbname, val, subfiltervalue)) {
+                    await _createMOC(mocname, moctype, filterkey, val, subfilterkey, subfiltervalue);
+                }
+            }
+        }
+
+        // Create a MOC for each Database Type Value
+
+        let tmulti = "NA";
+        if (dbinfo["field-info"] && dbinfo["field-info"][typekey]) {
+            tmulti = dbinfo["field-info"][typekey].multi;
+        }
+
         if (dbdata[typekey]) {
             const typevals = dbdata[typekey];
+            //            if (typevals.length > 1) {
+            //                console.warn("MULTIPLE MOCS typevals " + dbname + " -> " + typekey, typevals);
+            //            }
             for (const typeval of typevals) {
-                moc = _getMOCfrontmatter("MOC-type-value", typekey, typeval);
-                moc += "\n" + templates["MOC-type-value"].content;
-                mocfilename = _getMOCFilename(typeval);
-                await this.pojo.createVaultFile(moc, this.settings.folder_moc, mocfilename, !info.bCreateOnly);
-                info.mocCount++;
 
+                if (_mocOK(dbname, typeval)) {
+                    await _createMOCs(typeval, "MOC-multi", tmulti, typekey, typeval);
+                }
+            }
+        }
+
+
+        // Create a MOC for each Database Param Value
+        if (dbinfo.params && dbinfo["field-info"]) {
+            for (const param of dbinfo.params) {
+                // Check if field-info there.
+                const fldinfo = dbinfo["field-info"][param];
+                if (fldinfo && fldinfo.allowed) {
+                    if (fldinfo.allowed == "history" || fldinfo.allowed == "fixed") {
+                        if (dbdata[param]) {
+                            for (const pvalue of dbdata[param]) {
+                                await _createMOCs(pvalue, "MOC-multi", "NA", param, pvalue);
+                            }
+                        }
+                    } else if (fldinfo.allowed == "history-type") {
+                        const typevals = dbdata[typekey];
+                        if (typevals) {
+                            for (const typeval of typevals) {
+                                const hkey = typeval + "_" + param;
+                                //                                if (typevals.length > 1) {
+                                //                                    console.warn("MULTIPLE MOCS history-type " + dbname + " -> " + hkey, typevals, dbdata[hkey]);
+                                //                                }
+                                if (dbdata[hkey]) {
+                                    for (const pvalue of dbdata[hkey]) {
+                                        await _createMOCs(pvalue, "MOC-multi", tmulti, typekey, typeval, param, pvalue);
+                                    }
+                                }
+                            }
+                        } else {
+                            console.warn("Interestingly no data found for " + dbname + " and " + typekey);
+                        }
+                    }
+                }
             }
         }
 
@@ -194,6 +407,7 @@ export class PojoConvert {
         let frontmatter = null;
         let diarydate = null;
         let parsedcontent = null;
+        let tags = null;
         try {
             // Extract any YAML
             frontmatter = this.app.metadataCache.getFileCache(contentFile)?.frontmatter;
@@ -222,8 +436,6 @@ export class PojoConvert {
             parsedcontent = this.parseMarkdown(filecontent);
             this.currentfile = null;
 
-            //            console.log("parsedcontent", parsedcontent);
-
             // Check to see IF this is actually a daily note
             if (!parsedcontent || Object.keys(parsedcontent).length == 0) {
                 this.pojo.logDebug("Empty daily not!");
@@ -238,7 +450,22 @@ export class PojoConvert {
                     "msg": "This is a markdown note, but not a POJO compliant daily note."
                 };
             } else {
+                //                console.log("parsedcontent", parsedcontent);
+
                 diarydate = parsedcontent[this.defsec][0].Date;
+
+                // Get all the tags found in file.
+                tags = [];
+                for (const sect in parsedcontent) {
+                    if (sect !== this.defsec) {
+                        for (const sitem of parsedcontent[sect]) {
+                            if (sitem._database && sitem._type) {
+                                const newtag = sitem._database + "/" + sitem._type;
+                                if (!tags.includes(newtag)) { tags.push(newtag); }
+                            }
+                        }
+                    }
+                }
             }
 
         } catch (err) {
@@ -261,7 +488,7 @@ export class PojoConvert {
         try {
 
             // Add frontmatter
-            this.addFrontMatterForEntry(parsedcontent, frontmatter);
+            this.addFrontMatterForEntry(parsedcontent, tags, frontmatter);
 
             for (const db in parsedcontent) {
 
@@ -358,7 +585,7 @@ export class PojoConvert {
             return retobj;
         }
 
-        console.log("NEED to manage images", imageactions);
+        //        console.log("NEED to manage images", imageactions);
 
         let nCount = 0;
         for (const refnote in imageactions) {
@@ -497,6 +724,93 @@ export class PojoConvert {
         this.pojo.pojoLogs("debug", [msg], obj, false);
     }
 
+    async getTaggedFiles (folder: string, bSummary: boolean): object {
+
+        const taggedfiles = {};
+        const files = this.vault.getMarkdownFiles();
+        for (const file of files) {
+            if (file.path.startsWith(folder)) {
+                const file_cache = this.app.metadataCache.getFileCache(file);
+                const tags = getAllTags(file_cache);
+                for (const tag of tags) {
+                    if (!taggedfiles[tag]) { taggedfiles[tag] = []; }
+                    taggedfiles[tag].push(file);
+                }
+            }
+        }
+
+        const tagsummary = {};
+        const _addKeyEntry = function (dbname: string, key: string) {
+            //            console.log(`_addKeyEntry key=${key} <${dbname}>`);
+            if (!tagsummary[dbname]) { tagsummary[dbname] = {}; }
+            if (!tagsummary[dbname][key]) { tagsummary[dbname][key] = 1; }
+            else { tagsummary[dbname][key]++; }
+        }
+
+        console.log("HERE ARE TAGGED FILES", taggedfiles);
+        if (!bSummary) {
+            return taggedfiles;
+        }
+
+        for (const tag in taggedfiles) {
+            if (taggedfiles[tag].length > 1) {
+                for (const file of taggedfiles[tag]) {
+                    const fm = await this.pojo.getMarkdownFileInfo(file);
+                    if (fm && fm.metainfo) {
+                        //                        console.warn("GOTS metainfo for tag " + tag);
+                        const ta = tag.slice(1).split("/");
+                        const dbname = ta[0];
+                        const dbinfo = this.pojo.getDatabaseInfo(dbname);
+                        if (!dbinfo) {
+                            console.error("MISSING database info for database " + dbname);
+                            continue;
+                        }
+                        const typename = dbinfo.type;
+
+                        const entries = fm.metainfo[dbname];
+                        for (const tentry of entries) {
+                            //                            console.log(tentry)
+                            if (tentry[typename] == ta[1]) {
+                                //                                console.log("TYPE NAME " + tentry[typename], tentry);
+                                const typeval = tentry[typename];
+
+                                // Check to see if multi is DASH first.
+                                let typevala = [typeval];
+                                if (tentry["field-info"] && tentry["field-info"][typename] && tentry["field-info"][typename].multi == "DASH") {
+                                    typevala = typeval.split("-");
+                                }
+                                for (const tval of typevala) {
+                                    _addKeyEntry(dbname, tval);
+                                }
+
+                                for (const ekey in tentry) {
+                                    // Exclude any meta metadata
+                                    if (!this.settings.metameta[ekey] && ekey !== typename) {
+                                        const val = tentry[ekey];
+                                        //                                        console.log(` ekey=${ekey} val=${val}`);
+
+                                        if (Array.isArray(val)) {
+                                            for (const vale of val) {
+                                                _addKeyEntry(dbname, typeval + "_" + vale);
+                                                _addKeyEntry(dbname, vale);
+                                            }
+                                        } else {
+                                            _addKeyEntry(dbname, typeval + "_" + val);
+                                            _addKeyEntry(dbname, val);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        console.log("GOTS THE SUMMARY", tagsummary);
+        return tagsummary;
+    }
+
+
     getInputFiles (folder): TFile[] {
 
         const inputfiles = [];
@@ -540,13 +854,13 @@ export class PojoConvert {
             const rval = this.parseAST(child);
             if (!rval) {
                 // ERROR
-                this.pojo.logError("parseAST error encountered. Continuing...", child);
+                this.pojo.logError("parseAST error encountered. Continuing to Process...");
                 continue;
             }
             this.logDebug("debug", rval.key, rval.values);
             if (!this.parseItem(parsed, rval.key, rval.values)) {
                 // ERROR
-                this.pojo.logError("parseItem error encoutered. Continuing...", rval);
+                this.pojo.logError("parseItem error encoutered. Continuing to Process...");
                 continue;
             }
         }
@@ -846,7 +1160,7 @@ export class PojoConvert {
             value: _getMOCcontent("value")
         }
 
-        const _getMOCfrontmatter = function (moctype: string, dbname: string, param: string, value: string): string[] {
+        const _getMOCfrontmatter = function (moctype: string, dbname: string, param: string, value: string): object {
 
             const dbinfo = this.pojo.getDatabaseInfo(dbname);
 
@@ -880,7 +1194,7 @@ export class PojoConvert {
             }
 
             fm.push("---");
-            return fm;
+            return parseYaml(fm);
         }
 
 
@@ -1045,6 +1359,7 @@ export class PojoConvert {
             const content = section.content;
             const dbinfo = this.pojo.getDatabaseInfo(database);
 
+            md.push(`## ${database}`)
             md.push(`> [!${callout}]+ [[${database}]]`);
             this.pojo.logDebug("HERE IS DA contnetet for " + database, content);
             for (const type in content) {
@@ -1304,7 +1619,7 @@ export class PojoConvert {
         return nentry;
     }
 
-    private addFrontMatterForEntry (dbentry: object[], frontmatter: object) {
+    private addFrontMatterForEntry (dbentry: object[], tags: string[], frontmatter: object) {
 
 
         // Add Daily Note YAML entry 
@@ -1444,16 +1759,37 @@ export class PojoConvert {
             }
         }
 
-        // Add reference to all used databases
+        // Add reference to all used databases and collect what metadata is used in note
         const dbs = [];
+        const dbesummary = {};
         for (const db in dbentry) {
             if (db !== this.defsec) {
                 dbs.push(db);
+
+                const dba = dbentry[db];
+                if (!dbesummary[db]) { dbesummary[db] = []; }
+                for (const me of dba) {
+                    const sume = {};
+                    for (const mekey in me) {
+                        // Save all keys not starting with _ and exclude Description
+                        if (mekey.charAt(0) !== "_" && mekey !== "Description") {
+                            sume[mekey] = me[mekey];
+                        }
+                    }
+                    dbesummary[db].push(sume);
+                }
             }
         }
+
         if (dbs.length > 0) {
             frontmatter["Databases"] = "[" + dbs.join(", ") + "]";
         }
+
+        if (tags && tags.length > 0) {
+            frontmatter["tags"] = "[" + tags.join(", ") + "]";
+        }
+
+        frontmatter["metainfo"] = `${JSON.stringify(dbesummary)}`;
     }
 
     private getISODave (dt: Date): string {
@@ -1595,7 +1931,11 @@ export class PojoConvert {
                 for (const pname of rparams) {
                     if (pname !== typename) {
                         const pvalue = record[pname];
-                        md.push(`${pname}: ${pvalue}`);
+                        if (Array.isArray(pvalue)) {
+                            md.push(`${pname}: [${pvalue}]`);
+                        } else {
+                            md.push(`${pname}: ${pvalue}`);
+                        }
                     }
                 }
             }

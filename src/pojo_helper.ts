@@ -1,6 +1,6 @@
 import { PojoSettings, generatePath, pluginPath } from "./settings";
 import { Suggestion } from "./provider/provider";
-import { Vault, Platform, TFile, TFolder, App } from "obsidian";
+import { Vault, Platform, TFile, TFolder, App, parseYaml } from "obsidian";
 
 const POJO_TAG_PREFIX_REGEX = /^#(?!#)/;
 const POJO_H3_PREFIX_REGEX = /^### /;
@@ -62,18 +62,22 @@ export class PojoHelper {
         return this.vault.configDir + "/plugins/obsidian-pojo";
     }
 
-    async saveConversionLogFile (infoobj: object) {
+    async saveConversionLogFile (infoobj: object): string {
 
         const logfile = [];
-        const _addToLog = function (line: string) {
-            logfile.push(line);
+        const _addToLog = function (line: string, nIndent?: number) {
+            let prefix = "";
+            if (nIndent) {
+                for (let n = 0; n < nIndent; n++) { prefix += ">"; }
+            }
+            logfile.push(prefix + line);
         }
 
 
         const now = new Date();
         const nowinfo = now.toDateString() + " " + now.valueOf();
 
-        const _getItemString = function (note: string, type: string, item: object): string {
+        const _addItem = function (note: string, type: string, item: object) {
 
             let msg;
             if (type == "error") {
@@ -83,36 +87,11 @@ export class PojoHelper {
             } else {
                 msg = "✔ ";
             }
-            msg += note;
-
-            const _parseItem = function (key, val) {
-                if (val == null) {
-                    msg += ` ${key}:`
-                } else if (typeof val === 'object') {
-                    msg += ` (${key}:`;
-                    for (const key2 in val) {
-                        _parseItem(key2, val[key2]);
-                    }
-                    msg += ')';
-                } else if (Array.isArray(val)) {
-                    msg += ` [${key}:`
-                    let index = 1;
-                    for (const aitem of val) {
-                        _parseItem(index, aitem);
-                        index++;
-                    }
-                    msg += ']';
-                } else {
-                    msg += ` ${key}: ${val}`;
-                }
-            }
+            _addToLog(msg + note);
 
             if (item) {
-                for (const key in item) {
-                    _parseItem(key, item[key]);
-                }
+                _addToLog(JSON.stringify(item, null, "\t"), 3);
             }
-            return msg;
         }
 
         _addToLog("## Conversion Summary");
@@ -144,10 +123,7 @@ export class PojoHelper {
             _addToLog("## Failures");
             _addToLog("");
             for (note in infoobj.failure) {
-                const failobj = infoobj.failure[note];
-                const msg = _getItemString(note, "error", failobj);
-                _addToLog(msg);
-
+                _addItem(note, "error", infoobj.failure[note]);
             }
         }
 
@@ -156,9 +132,7 @@ export class PojoHelper {
             _addToLog("## Warnings");
             _addToLog("");
             for (note in infoobj.warning) {
-                const warnobj = this.infoobj.warning[note];
-                const msg = _getItemString(note, "warn", warnobj);
-                _addToLog(msg);
+                _addItem(note, "warning", infoobj.warning[note]);
             }
         }
 
@@ -166,6 +140,7 @@ export class PojoHelper {
         const filename = nowinfo + ".md";
 
         await this.createVaultFile(logfile.join("\n"), foldername, filename, false);
+        return foldername + "/" + filename;
     }
 
     async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean) {
@@ -395,7 +370,11 @@ export class PojoHelper {
                     this.logDebug("FMINFO ", finfo);
                     const catname = finfo.frontmatter.Category;
                     pojoMT[catname] = finfo.frontmatter;
-                    pojoMT[catname].content = finfo.content;
+                    // Split the content into the first 3 lines and everything else
+                    const ca = finfo.content.split("\n");
+
+                    pojoMT[catname].contentstart = ca.slice(0, 2).join("\n");
+                    pojoMT[catname].contentend = ca.slice(3).join("\n");
                 } else {
                     this.logError("ERROR in MOC Template file " + fobj.path, finfo);
                     console.error("ERROR in MOC Template file " + fobj.path, finfo);
@@ -618,7 +597,6 @@ export class PojoHelper {
         const dbinfo = this.loadedPojoDB[dbname];
         if (!dbinfo) {
             this.logError("ERROR missing database info in pojo settings", dbname);
-            this.logError("dbinfo is ", this.loadedPojoDB);
             return null;
         }
         return dbinfo;
@@ -823,6 +801,55 @@ export class PojoHelper {
     }
 */
 
+    async getMarkdownFileInfo2 (mfile: TFile, bContentAlso: boolean): object | null {
+        // Returns file frontmatter ONLY if bContent is false.
+        let content;
+        if (bContentAlso) {
+            try {
+                content = await this.vault.read(mfile);
+            } catch (err) {
+                this.logError("ERROR reading file ", mfile.path);
+                this.logError("Error", err);
+                return null;
+            }
+        }
+
+        // extract the frontmatter!
+        const fm = [];
+        const body = [];
+        const clines = content.split("\n");
+        let parseMode = 'BODY';
+        for (const line of clines) {
+            if (line == '---') {
+                if (parseMode != 'YAML') {
+                    parseMode = 'YAML';
+                } else {
+                    parseMode = 'BODY';
+                }
+            } else if (parseMode == 'YAML') {
+                fm.push(line);
+            } else if (parseMode == 'BODY') {
+                body.push(line);
+            }
+        }
+
+        // Get the frontmatter
+        let frontmatter = {};
+        const fmc = fm.join("\n");
+        frontmatter = parseYaml(fmc);
+
+        const bodytext = body.join("\n");
+
+        if (bContentAlso) {
+            return {
+                frontmatter: frontmatter,
+                content: bodytext
+            }
+        } else {
+            return frontmatter;
+        }
+    }
+
     async getMarkdownFileInfo (mfile: TFile, bContentAlso: boolean): object | null {
         // Returns file frontmatter ONLY if bContent is false.
         let content;
@@ -835,7 +862,8 @@ export class PojoHelper {
                 return null;
             }
         }
-        //        console.log("HERE is the file content", content);
+
+        //        console.log("Get content for file: " + mfile.path);
 
         let frontmatter = {};
         let bodytext = "";

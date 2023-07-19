@@ -149,6 +149,8 @@ export class PojoZap extends Modal {
                     .onClick(async () => {
                         console.log('MOC Updates', self.pojo);
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
+                        //                        await convert.getTaggedFiles(self.settings.folder_daily_notes, true);
+                        //                        console.log("DA DONE");
                         const retobj = await convert.createMOCFiles(false);
                         console.log("DONE MOC FER NOW", retobj, true);
                     })
@@ -202,14 +204,16 @@ export class PojoZap extends Modal {
         console.log("COMPLETED CONVERSOINS ", retobj);
 
         // Write out a status log of the conversion.
+        let logfilename = null;
         if (bWriteLogs) {
-            await pojo.saveConversionLogFile(retobj);
+            logfilename = await pojo.saveConversionLogFile(retobj);
         }
 
         // Open Dialog with conversoin complete
         new DailyNoteConversionComplete(
             this.app,
-            retobj
+            retobj,
+            logfilename
         ).open();
     }
 
@@ -254,7 +258,7 @@ export class PojoZap extends Modal {
                 if (bConvertAllNotes) {
                     // Something strange going on if this error is encountered when doing a convert all notes.
                     console.error("Error as saying Already converted.", filename);
-                    returnObject.failure[filename] = { errors: self.pojo.errorStack(), type: retval.type };
+                    returnObject.failure[filename] = { errors: self.pojo.errorStack(), type: "noconvert_archived_missing" };
                     nFailure++;
                 } else {
                     console.log("Already converted.", filename);
@@ -290,7 +294,7 @@ export class PojoZap extends Modal {
         }
 
         const iret = await convert.manageImages(imageactions);
-        console.log("manageImages returned", iret);
+        //        console.log("manageImages returned", iret);
 
         if (!iret.success) {
             for (const valobj of iret.failures) {
@@ -316,8 +320,7 @@ const capitalize = function (word) {
     return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
-
-const modifyDatabaseHistory = function (dbhistory) {
+const modifyDatabaseHistoryDEPRECATED = function (dbhistory) {
     console.log("HERE IS DBHISTORY", dbhistory);
     const newhistory = {};
     for (const dbname in dbhistory.databases) {
@@ -635,11 +638,13 @@ export class DatabaseReview extends Modal {
 class DailyNoteConversionComplete extends Modal {
     private app: App;
     private infoobj: object;
+    private logfile: string;
 
-    constructor(app: App, infoobj: object) {
+    constructor(app: App, infoobj: object, logfile: string) {
         super(app);
         this.app = app;
         this.infoobj = infoobj;
+        this.logfile = logfile;
     }
 
     async onOpen () {
@@ -714,6 +719,13 @@ class DailyNoteConversionComplete extends Modal {
         new Setting(contentEl)
             .setName("Daily Note Conversion Completed")
             .setDesc(msg)
+
+        if (this.logfile) {
+            new Setting(contentEl)
+                .setName("Conversion Details also found in vault file:")
+                .setDesc(this.logfile);
+        }
+
 
         if (nFailure > 0 || nWarning > 0) {
             new Setting(contentEl)
