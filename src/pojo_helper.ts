@@ -62,7 +62,7 @@ export class PojoHelper {
         return this.vault.configDir + "/plugins/obsidian-pojo";
     }
 
-    async saveConversionLogFile (infoobj: object): string {
+    async saveConversionLogFile (infoobj: object): Promise<string> {
 
         const logfile = [];
         const _addToLog = function (line: string, nIndent?: number) {
@@ -95,6 +95,7 @@ export class PojoHelper {
         }
 
         _addToLog("## Conversion Summary");
+        _addToLog("(Log Output from doing a 'Convert ALL Daily Notes' ");
         _addToLog("");
 
         let msgend = ""
@@ -137,7 +138,91 @@ export class PojoHelper {
         }
 
         const foldername = generatePath(this.settings.folder_pojo, this.settings.subfolder_logs);
-        const filename = nowinfo + ".md";
+        const filename = "CNVALL " + nowinfo + ".md";
+
+        await this.createVaultFile(logfile.join("\n"), foldername, filename, false);
+        return foldername + "/" + filename;
+    }
+
+    async saveErrorLogFile (infoobj: object): Promise<string> {
+
+        const logfile = [];
+        const _addToLog = function (line: string, nIndent?: number) {
+            let prefix = "";
+            if (nIndent) {
+                for (let n = 0; n < nIndent; n++) { prefix += ">"; }
+            }
+            logfile.push(prefix + line);
+        }
+
+
+        const now = new Date();
+        const nowinfo = now.toDateString() + " " + now.valueOf();
+
+        const _addItem = function (note: string, type: string, item: object) {
+
+            let msg;
+            if (type == "error") {
+                msg = "❌ ";
+            } else if (type == "warn") {
+                msg = "⚠ ";
+            } else {
+                msg = "❓ ";
+            }
+            _addToLog(msg + note);
+
+            if (item) {
+                _addToLog(JSON.stringify(item, null, "\t"), 3);
+            }
+        }
+
+        _addToLog("## Error Logs");
+        _addToLog("Saved record of current error messages (and debug if they are available).");
+        _addToLog("");
+
+        let msgend = ""
+        const nError = Object.keys(infoobj.errors).length;
+        if (nError > 0) {
+            if (nError == 1) { msgend = " error." } else { msgend = " errors." }
+            _addToLog("Encountered " + nError + msgend);
+        }
+        let nDebug = 0;
+        if (infoobj.debug) {
+            nDebug = Object.keys(infoobj.debug).length;
+        }
+        _addToLog("");
+        _addToLog(this.getPlatformInfo());
+
+
+        let note;
+        if (nError > 0) {
+            _addToLog("");
+            _addToLog("## Errors");
+            _addToLog("");
+            let cat = "error";
+            for (note of infoobj.errors) {
+                if (note == "[[ ") {
+                    cat = "error";
+                } else if (note == " ]]") {
+                    cat = "";
+                } else {
+                    _addItem(note, cat);
+                    cat = "";
+                }
+            }
+        }
+
+        if (nDebug > 0) {
+            _addToLog("");
+            _addToLog("## Debug Messages");
+            _addToLog("");
+            for (note of infoobj.debug) {
+                _addItem(note, "warning");
+            }
+        }
+
+        const foldername = generatePath(this.settings.folder_pojo, this.settings.subfolder_logs);
+        const filename = "ERRORS " + nowinfo + ".md";
 
         await this.createVaultFile(logfile.join("\n"), foldername, filename, false);
         return foldername + "/" + filename;
@@ -205,20 +290,10 @@ export class PojoHelper {
         }
 
         if (!this.logs[category]) { this.logs[category] = []; }
-        let pref = "[[ ";
-        let suffix = "";
+        this.logs[category].push("[[ ");
+        const suffix = "";
         for (let n = 0; n < errs.length; n++) {
-            if (n == 0) {
-                pref = "[[ ";
-            } else if (n == errs.length && !dobj) {
-                pref = " ]]";
-            } else {
-                pref = ""
-            }
-            if (errs.length == 1) {
-                suffix = " ]]";
-            }
-            this.logs[category].push(pref + errs[n] + suffix);
+            this.logs[category].push(errs[n]);
         }
 
         if (dobj) {
@@ -590,6 +665,8 @@ export class PojoHelper {
 
     getDatabaseInfo (dbname: string): object | null {
 
+        this.logError("DA THING TEST", "BOB");
+
         if (dbname == this.defsec) {
             return null;
         }
@@ -758,8 +835,6 @@ export class PojoHelper {
                             md.push("   - " + val);
                         }
                     }
-                } else {
-                    this.logError("ERROR found unexpected key value" + key, keya);
                 }
             }
         }

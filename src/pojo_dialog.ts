@@ -175,6 +175,11 @@ export class PojoZap extends Modal {
                 .setName("Error Logs")
 
             const newel = contentEl.createEl("div");
+            const logfile = await this.pojo.saveErrorLogFile(this.logs);
+            if (logfile) {
+                newel.createEl("div", { text: "Errors logged to " + logfile });
+            }
+
             for (const log of this.logs.errors) {
                 newel.createEl("div", { text: log });
             }
@@ -192,7 +197,12 @@ export class PojoZap extends Modal {
             newel.createEl("hr");
         }
 
-
+        if (this.logs.errors) {
+            //            delete this.logs.errors;
+            if (this.logs.debug) {
+                delete this.logs.debug;
+            }
+        }
     }
 
     onClose () {
