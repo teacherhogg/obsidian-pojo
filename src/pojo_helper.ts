@@ -426,17 +426,17 @@ export class PojoHelper {
         }
     }
 
-    async getMOCTemplates (): Promise<object> | null {
-        const mtpath = generatePath(this.settings.folder_pojo, this.settings.subfolder_templates);
-        const mtfolder = this.vault.getAbstractFileByPath(mtpath) as TFolder;
-        if (!mtfolder) {
-            this.logError("ERROR - moc template folder is NOT FOUND!", mtpath);
+    async getTemplates (): Promise<object> | null {
+        const tpath = generatePath(this.settings.folder_pojo, this.settings.subfolder_templates);
+        const tfolder = this.vault.getAbstractFileByPath(tpath) as TFolder;
+        if (!tfolder) {
+            this.logError("ERROR - template sub folder is NOT FOUND!", tpath);
             return null;
         }
 
-        const pojoMT = {};
-        if (mtfolder && mtfolder.children) {
-            for (const fobj of mtfolder.children) {
+        const templates = {};
+        if (tfolder && tfolder.children) {
+            for (const fobj of tfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
                 this.logDebug("Get Markdown Info", fname.path);
                 const finfo = await this.getMarkdownFileInfo(fname, true);
@@ -444,12 +444,17 @@ export class PojoHelper {
                 if (finfo && finfo.frontmatter && finfo.frontmatter.Category) {
                     this.logDebug("FMINFO ", finfo);
                     const catname = finfo.frontmatter.Category;
-                    pojoMT[catname] = finfo.frontmatter;
-                    // Split the content into the first 3 lines and everything else
-                    const ca = finfo.content.split("\n");
+                    templates[catname] = finfo.frontmatter;
 
-                    pojoMT[catname].contentstart = ca.slice(0, 2).join("\n");
-                    pojoMT[catname].contentend = ca.slice(3).join("\n");
+                    if (finfo.frontmatter.Type == "MOC-Template") {
+                        // Split the content into the first 3 lines and everything else for MOC's
+                        const ca = finfo.content.split("\n");
+
+                        templates[catname].contentstart = ca.slice(0, 2).join("\n");
+                        templates[catname].contentend = ca.slice(3).join("\n");
+                    } else {
+                        templates[catname].content = finfo.content;
+                    }
                 } else {
                     this.logError("ERROR in MOC Template file " + fobj.path, finfo);
                     console.error("ERROR in MOC Template file " + fobj.path, finfo);
@@ -460,7 +465,7 @@ export class PojoHelper {
             return null;
         }
 
-        return pojoMT;
+        return templates;
     }
 
     displayMetaMeta (pname, pvalue) {
@@ -609,6 +614,26 @@ export class PojoHelper {
         return true;
     }
 
+    /** If datestr is null, then this is just for today's date**/
+    getDailyNoteName (datestr: string): string {
+        let zdate;
+        if (datestr) {
+            zdate = new Date(datestr);
+        } else {
+            zdate = new Date();
+        }
+        const offset = zdate.getTimezoneOffset() * 60 * 1000;
+        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+        const newDate = new Date(zdatenum);
+
+        //        console.log("DA DATE from " + source, newDate);
+        const dow = newDate.toLocaleDateString("en-US", {
+            weekday: "short"
+        })
+        const notename = newDate.toISOString().split('T')[0] + " " + dow;
+        return notename;
+    }
+
     getFieldMOCName (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
         if (!dbinfo || !dbinfo["field-info"] || !dbinfo["field-info"][fieldname]) { return null; }
 
@@ -664,9 +689,6 @@ export class PojoHelper {
     }
 
     getDatabaseInfo (dbname: string): object | null {
-
-        this.logError("DA THING TEST", "BOB");
-
         if (dbname == this.defsec) {
             return null;
         }

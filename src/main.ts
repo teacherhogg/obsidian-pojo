@@ -26,6 +26,7 @@ export default class PojoPlugin extends Plugin {
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         this.settings.version_manifest = this.manifest.version;
+        this.settings.isDesktop = platform.isDesktop;
         if (this.settings.frontmatter_always_add) {
             this.settings.frontmatter_always_add.POJO = this.manifest.version;
         }
@@ -33,10 +34,10 @@ export default class PojoPlugin extends Plugin {
             this.settings.frontmatter_always_add_moc.push("POJO: " + this.manifest.version);
         }
 
-        console.log("POJO PLUGIN onload called....", this.settings);
+        console.log("POJO PLUGIN onload called...", this.settings);
         // This initializes all of pojo.
         await Pojo.loadSuggestions(this.app.vault, this.settings, this.app);
-        console.log("POJO initialized...");
+        console.log("POJO initialized Version " + this.settings.version_manifest);
 
         this.snippetManager = new SnippetManager();
         this._suggestionPopup = new SuggestionPopup(this.app, this.settings, this.snippetManager);

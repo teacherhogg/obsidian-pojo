@@ -3,6 +3,7 @@ import { Vault } from "obsidian";
 export interface PojoSettings {
     version_settings: string,
     version_manifest: string,
+    isDesktop: boolean,
     metameta: object,
     characterRegex: string,
     maxLookBackDistance: number,
@@ -36,6 +37,7 @@ export interface PojoSettings {
 
 export const DEFAULT_SETTINGS: PojoSettings = {
     "version_settings": "23ap23U 08:00",
+    "isDesktop": true,
     "frontmatter_always_add": {
         "Type": "Diary",
     },

@@ -2,7 +2,7 @@ import { Vault, TFile, App, getAllTags, stringifyYaml, parseYaml } from "obsidia
 import { parse } from "@textlint/markdown-to-ast";
 import { PojoSettings, generatePath } from "./settings";
 import * as path from "path";
-import convert from "heic-convert";
+// import convert from "heic-convert";
 
 
 const logs = {
@@ -34,18 +34,20 @@ export class PojoConvert {
         this.app = app;
         this.defsec = this.settings.daily_entry_h3[0];
         this.currentdb = this.settings.daily_entry_h3[0];
+        if (!settings.isDesktop) {
+            this.convertEnabled = false;
+        }
     }
 
     async createMOCFiles (bCreateOnly: boolean): Promise<object> | null {
 
         // Load the MOC templates.
-        const mocTemplates = await this.pojo.getMOCTemplates();
-        if (!mocTemplates) {
-            this.logError("ERROR on getting moc templates!");
-            console.error("Error reading MOC Templates");
+        const templates = await this.pojo.getTemplates();
+        if (!templates) {
+            this.logError("ERROR on getting templates!");
+            console.error("Error reading Templates");
             return null;
         }
-        console.log("MOCTEMPLATES", mocTemplates);
 
         // Get the tag summaries
         const tagSummary = await this.getTaggedFiles(this.settings.folder_daily_notes, true);
@@ -60,7 +62,7 @@ export class PojoConvert {
         console.log("HERE ARE databases", dbs);
 
         for (const db in dbs.databases) {
-            const mret = await this.createMOCFile(db, dbs.databases[db], mocTemplates, tagSummary, info);
+            const mret = await this.createMOCFile(db, dbs.databases[db], templates, tagSummary, info);
         }
 
         return info;
@@ -821,6 +823,44 @@ export class PojoConvert {
             }
         }
         return inputfiles;
+    }
+
+    async createDailyNote (notename: string, includeTasks: boolean): Promise<object> {
+
+        const retobj = {
+            success: true,
+            message: "Finished successfully"
+        };
+
+        // Load the templates.
+        const templates = await this.pojo.getTemplates();
+        if (!templates) {
+            this.logError("ERROR on getting templates!");
+            retobj.success.message = "Error reading Templates";
+            retobj.success = false;
+            return retobj;
+        }
+
+        let note = "";
+
+        if (templates["DAILY-start"]) {
+            note += templates["DAILY-start"].content;
+        }
+
+        if (includeTasks && templates["DAILY-tasks"]) {
+            note += templates["DAILY-tasks"].content;
+        }
+
+        if (templates["DAILY-end"]) {
+            note += templates["DAILY-end"].content;
+        }
+
+        console.log("HERE the note");
+        console.log(note);
+
+        await this.pojo.createVaultFile(note, this.settings.folder_daily_notes, notename + ".md", false);
+
+        return retobj;
     }
 
     private async markdownImportFilesDEPRECATED (mdfiles: TFile[]) {

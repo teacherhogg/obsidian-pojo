@@ -51,6 +51,9 @@ export class PojoZap extends Modal {
         let msg;
         msg = "Pojo Version: " + this.settings.version_manifest + " | Settings Version: " + this.settings.version_settings;
 
+        const todaydailyname = self.pojo.getDailyNoteName(null);
+        console.log("TODAY's Daily NOTE NAME is ", todaydailyname);
+
         this.contentEl.empty();
         new Setting(contentEl)
             .setName("Information")
@@ -92,7 +95,7 @@ export class PojoZap extends Modal {
         new Setting(contentEl)
             .addButton((btn) =>
                 btn
-                    .setButtonText("Convert THIS file")
+                    .setButtonText("Convert Current Note")
                     .onClick(async () => {
                         console.log('DOING THIS FILE CONVERT!!!');
                         const imageactions = [];
@@ -128,6 +131,28 @@ export class PojoZap extends Modal {
                             self.dailyNoteCompletion(retobj, self.pojo, false);
                         }
 
+                    })
+            )
+            .addButton((btn) =>
+                btn
+                    .setButtonText("New Daily Note")
+                    .onClick(async () => {
+                        new EditModal2(
+                            this.app,
+                            "Create New Daily Note",
+                            "",
+                            "Include Tasks",
+                            true,
+                            todaydailyname,
+                            button => button
+                                .setButtonText("Create"),
+                            async (datestr: string, tasks: boolean) => {
+
+                                console.log("Create new daily note " + datestr + " tasks: " + tasks);
+                                const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
+                                const retobj = await convert.createDailyNote(datestr, tasks);
+                                console.log("Daily Note created with retobj", retobj);
+                            }).open();
                     })
             )
 
@@ -909,6 +934,43 @@ class EditModal extends Modal {
                 buttonCallback(button);
                 button.onClick(async () => {
                     await clickCallback(edittext);
+                    this.close();
+                })
+            })
+            .addButton(button => button
+                .setButtonText("Cancel")
+                .onClick(() => this.close())).settingEl.addClass("completr-settings-no-border");
+    }
+}
+
+class EditModal2 extends Modal {
+
+    constructor(app: App, title: string, body: string, toggletext: string, toggleval: boolean, inputtext: string, buttonCallback: (button: ButtonComponent) => void, clickCallback: (editval: string, tasks: boolean) => Promise<void>) {
+        super(app);
+        let edittext = inputtext;
+        let edittog = toggleval;
+        this.titleEl.setText(title);
+        this.contentEl.setText(body);
+        new Setting(this.modalEl)
+            .setName(toggletext)
+            .addToggle(toggleEl => toggleEl
+                .setValue(edittog)
+                .onChange(async val => {
+                    console.log("TOGGLE " + val);
+                    edittog = val;
+                })
+            )
+            .addText(text => text
+                .setValue(edittext)
+                .onChange(async val => {
+                    console.log("EDITED " + val);
+                    edittext = val;
+                })
+            )
+            .addButton(button => {
+                buttonCallback(button);
+                button.onClick(async () => {
+                    await clickCallback(edittext, edittog);
                     this.close();
                 })
             })
