@@ -967,6 +967,7 @@ class EditModal2 extends Modal {
                     edittext = val;
                 })
             )
+        new Setting(this.modalEl)
             .addButton(button => {
                 buttonCallback(button);
                 button.onClick(async () => {

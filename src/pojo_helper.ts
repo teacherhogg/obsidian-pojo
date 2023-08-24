@@ -447,11 +447,23 @@ export class PojoHelper {
                     templates[catname] = finfo.frontmatter;
 
                     if (finfo.frontmatter.Type == "MOC-Template") {
-                        // Split the content into the first 3 lines and everything else for MOC's
+                        // Search for line with POJO_VARS_HERE. That line will be used to split the start and end
                         const ca = finfo.content.split("\n");
+                        const castart = [];
+                        const caend = [];
+                        let mode = 0;
+                        for (const line of ca) {
+                            if (line.includes("POJO_VARS_HERE")) {
+                                mode = 1;
+                            } else if (mode == 1) {
+                                caend.push(line);
+                            } else {
+                                castart.push(line);
+                            }
+                        }
 
-                        templates[catname].contentstart = ca.slice(0, 2).join("\n");
-                        templates[catname].contentend = ca.slice(3).join("\n");
+                        templates[catname].contentstart = castart.join("\n");
+                        templates[catname].contentend = caend.join("\n");
                     } else {
                         templates[catname].content = finfo.content;
                     }
@@ -619,18 +631,18 @@ export class PojoHelper {
         let zdate;
         if (datestr) {
             zdate = new Date(datestr);
+            const offset = zdate.getTimezoneOffset() * 60 * 1000;
+            const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+            zdate = new Date(zdatenum);
         } else {
             zdate = new Date();
         }
-        const offset = zdate.getTimezoneOffset() * 60 * 1000;
-        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
-        const newDate = new Date(zdatenum);
 
         //        console.log("DA DATE from " + source, newDate);
-        const dow = newDate.toLocaleDateString("en-US", {
+        const dow = zdate.toLocaleDateString("en-US", {
             weekday: "short"
         })
-        const notename = newDate.toISOString().split('T')[0] + " " + dow;
+        const notename = zdate.toISOString().split('T')[0] + " " + dow;
         return notename;
     }
 

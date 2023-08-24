@@ -1391,6 +1391,7 @@ export class PojoConvert {
     private addCalloutSection (md: string[], database: string, section: object) {
 
         this.pojo.logDebug("ZZZZ HERE is THE SECTION for " + database, section);
+        //        console.log("ZZZZ HERE is THE SECTION for " + database, section);
 
         // Sections (using callouts!)
         try {
@@ -1403,6 +1404,14 @@ export class PojoConvert {
             md.push(`> [!${callout}]+ [[${database}]]`);
             this.pojo.logDebug("HERE IS DA contnetet for " + database, content);
             for (const type in content) {
+                if (database == 'Tasks') {
+                    if (this.settings.daily_note_tasks_include) {
+                        if (!this.settings.daily_note_tasks_include.includes(type)) {
+                            // Only include tasks sections listed!
+                            continue;
+                        }
+                    }
+                }
                 const item = content[type];
                 let hline;
                 hline = `> `;
@@ -1951,9 +1960,8 @@ export class PojoConvert {
 
         const self = this;
         const dailynoteref = dailynotefile.split(".")[0];
-        //        console.log("writeOutMetadataRecords " + dailynoteref, newrecords);
+        console.log("writeOutMetadataRecords " + dailynoteref, newrecords);
         this.pojo.logDebug("writeOutMetadataRecords here... " + dailynotefile, newrecords);
-        let rcount = 1;
 
 
         const _createNewMetadataRecord = async function (record: object, typename: string, rparams: string[]): void {
@@ -1985,6 +1993,8 @@ export class PojoConvert {
             }
             md.push("Description: " + contentStatus);
             md.push("---");
+            md.push("");
+            md.push(record.Database + " " + record[typename] + " on " + record.Date);
             if (record.Description) {
                 md.push("");
                 for (const line of record.Description) {
@@ -1994,18 +2004,15 @@ export class PojoConvert {
                 md.push("");
             }
 
-            const filename = record.Database + "-" + record.Date + "-" + record.Nentry + rcount + ".md";
+            const filename = record.Database + "-" + record.Date + "-" + record.Nentry + ".md";
             const foldername = generatePath(self.settings.folder_pojo, self.settings.subfolder_metadata);
             await self.pojo.createVaultFile(md.join("\n"), foldername, filename, true);
-
-            rcount++;
         };
 
         try {
             for (const record of newrecords) {
                 if (record.Database !== this.defsec) {
 
-                    rcount = 1;
                     const dbinfo = this.pojo.getDatabaseInfo(record.Database);
 
                     const rparams = [];
