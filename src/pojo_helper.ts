@@ -707,6 +707,7 @@ export class PojoHelper {
 
         const dbinfo = this.loadedPojoDB[dbname];
         if (!dbinfo) {
+            console.error("ERROR " + dbname, this.loadedPojoDB);
             this.logError("ERROR missing database info in pojo settings", dbname);
             return null;
         }
@@ -1283,6 +1284,7 @@ export class PojoHelper {
         tagline = tagline.trimEnd();
 
         this.logDebug("HERE DA LINE", tagline);
+        //        console.log("HERA DA LINE", tagline);
 
         // Pojo Tags (or H3) do not have spaces in the reference except for Daily Entry
         if (this.settings.daily_entry_h3.includes(tagline)) {
@@ -1467,8 +1469,77 @@ export class PojoHelper {
         return robj;
     }
 
+    getTagMetadata (db: string, type: string): Object[] {
+        const dbinfo = this.loadedPojoDB[db];
+        if (!dbinfo) { return []; }
+        const pobj = {
+            _database: db,
+            _type: type,
+            _typeparam: dbinfo.type
+        }
+        pobj[dbinfo["_typeparam"]] = dbinfo["_type"];
+
+        const fldi = dbinfo["field-info"];
+
+        const meta = [];
+        for (const param of dbinfo.params) {
+            if (param == "Description") {
+                break;
+            }
+            pobj["_loc"] = param;
+            pobj["_locval"] = "";
+
+            let multi = "NA";
+            if (fldi && fldi[param] && fldi[param].multi) {
+                multi = fldi[param].multi;
+            }
+
+            const vala = this.getSuggestedValues(pobj);
+            const vals = [];
+            for (const val of vala) {
+                vals.push(val.replacement);
+            }
+            meta.push({
+                name: param,
+                vals: vals,
+                multi: multi,
+                fulltext: "",
+            });
+        }
+
+        return meta;
+    }
+
+    getSuggestedTags (): Object[] | null {
+
+        const tags = [];
+
+        for (const db in this.loadedPojoDB) {
+            const dbinfo = this.loadedPojoDB[db];
+            console.log("db info for " + db, dbinfo);
+            const pobj = {
+                _loc: "type",
+                _database: db
+            };
+            pobj[dbinfo.type] = "";
+
+            const vala = this.getSuggestedValues(pobj);
+            //            console.log("HERE is vala", pobj, vala);
+            for (const vol of vala) {
+                tags.push({
+                    db: db,
+                    type: vol.replacement,
+                    name: db + "/" + vol.replacement
+                })
+            }
+        }
+
+        return tags;
+    }
+
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
+        //        console.log("getSuggestedValues", pobj);
         //        this.logDebug("getSuggestedValues POJO Object", pobj);
 
         if (!pobj || !pobj._loc) { return null; }

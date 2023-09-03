@@ -56,13 +56,6 @@ export default class PojoPlugin extends Plugin {
         }
     }
 
-    private setupCommandsTEMP () {
-        // POJO Action Dialog
-        this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
-            Pojo.pojoZap(this.app, false, this.statusbar);
-        })
-    }
-
     private setupCommands () {
         //This replaces the default handler for commands. This is needed because the default handler always consumes
         // the event if the command exists.
@@ -125,6 +118,10 @@ export default class PojoPlugin extends Plugin {
         // POJO Action Dialog
         this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
             Pojo.pojoZap(this.app, false, this.statusbar);
+        })
+
+        this.addRibbonIcon('database', 'Pojo Create Entry', () => {
+            Pojo.pojoCreate(this.app, this.statusbar);
         })
 
         this.addCommand({

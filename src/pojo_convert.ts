@@ -480,6 +480,7 @@ export class PojoConvert {
 
         // console.warn("FINISHED import of markdown file", parsedcontent);
         this.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
+        console.log("Parsed Content", parsedcontent);
 
         // Construct the NEW daily note from parsedcontent
         const newrecords: object[] = [];
@@ -558,8 +559,14 @@ export class PojoConvert {
             this.getNoteFileName(inputFile.name, false));
         this.pojo.logDebug("Deleting original note :" + orignote + ":");
         const origNoteFile = this.vault.getAbstractFileByPath(orignote);
-        //        console.log("DELETING original noteFile " + orignote, origNoteFile);
-        await this.vault.delete(origNoteFile);
+
+        const bob = true;
+        if (!bob) {
+            //        console.log("DELETING original noteFile " + orignote, origNoteFile);
+            await this.vault.delete(origNoteFile);
+        } else {
+            console.warn("DISABLED DELETE OF ORIG FILE...");
+        }
 
         // Create markdown files for metadata records
         await this.writeOutMetadataRecords(dailynotefile, newrecords);
@@ -1070,8 +1077,8 @@ export class PojoConvert {
             } else {
                 this.pojo.logDebug("HERE BE THE DATE " + parsed[this.defsec][0].Date);
             }
-        } else if (key == "H2") {
-            // Title on Daily Entry
+        } else if (key == "H2" && !parsed[this.defsec][0]._Title) {
+            // The FIRST H2 in the file becomes the title of the Daily Entry
             parsed[this.defsec][0]._Title = line;
             if (!parsed[this.defsec][0].Date) {
                 parsed[this.defsec][0].Date = this.getDateFromFile();
@@ -1141,6 +1148,9 @@ export class PojoConvert {
         } else {
             // Text 
             this.logDebug("parse1", "HERE is line for key " + key, line);
+            //            console.log("key " + key, line);
+            // See above parsing for H2 to find title of Daily Entry
+            if (key == "H2") { line = "## " + line; }
             if (!parsed[this.currentdb]) { parsed[this.currentdb] = []; }
             if (!parsed[this.currentdb][this.currentidx]) { parsed[this.currentdb][this.currentidx] = {}; }
 

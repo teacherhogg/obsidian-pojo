@@ -16,6 +16,11 @@ body {
     display: inline-block;
 }
 
+.completr-full-width {
+    width: 500px !important;
+    border: 2px solid rgb(14, 33, 127) !important; 
+}
+
 .completr-suggestion-icon {
     height: var(--completr-suggestion-icon-height);
     min-height: var(--completr-suggestion-icon-height);
