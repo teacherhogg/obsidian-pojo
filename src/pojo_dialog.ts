@@ -261,6 +261,9 @@ export class PojoZap extends Modal {
         let nWarning = 0;
         let nDone = 0;
 
+        const suggestedTags = self.pojo.getSuggestedTags();
+        const databases = self.pojo.getDatabases(false, true);
+
         const _getStatusText = function () {
             return nSuccess + "✔ " + nFailure + "❌ " + nWarning + "⚠ " + nDone + statsuffix;
         }
@@ -283,7 +286,7 @@ export class PojoZap extends Modal {
         let lastmsg;
         for (const dfile of dailyFiles) {
             self.pojo.errorStack(true);
-            const retval = await convert.convertDailyNote(dfile, imageactions, bConvertAgain, bConvertAllNotes);
+            const retval = await convert.convertDailyNote(dfile, databases, suggestedTags, imageactions, bConvertAgain, bConvertAllNotes);
             lastmsg = retval.msg;
 
             nDone++;
@@ -328,6 +331,7 @@ export class PojoZap extends Modal {
             }
         }
 
+        console.log("HERE is imageactions", imageactions);
         const iret = await convert.manageImages(imageactions);
         //        console.log("manageImages returned", iret);
 

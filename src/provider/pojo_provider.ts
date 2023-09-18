@@ -258,7 +258,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
         ).open();
     }
 
-    async pojoZap (app: object, bJustHint: boolean, statusbar: HTMLElement): Promise<null> {
+    async pojoZap (app: object, statusbar: HTMLElement): Promise<null> {
 
         if (!this.pojo) {
             const inited = await this.initializeProvider(app.vault);

@@ -1,4 +1,4 @@
-import { App, Modal, FuzzySuggestModal, Setting, TFile, DropdownComponent } from "obsidian";
+import { App, Modal, FuzzySuggestModal, Setting, TFile, DropdownComponent, MarkdownView } from "obsidian";
 import { PojoSettings } from './settings';
 import { Searcher } from "fast-fuzzy";
 
@@ -26,7 +26,19 @@ export class PojoCreate extends Modal {
             console.log("YES this is a valid file for pojo!");
             this.currentFile = currentFile;
         }
-
+        /*
+                const editor = app.workspace.activeEditor;
+                console.log("app.workspace.activeEditor", editor);
+        
+        
+                const view = app.workspace.getActiveViewOfType(MarkdownView);
+                console.log("HERE VIEW", view);
+                const curs = view.editor.getCursor();
+                // curs will have ch and line
+                console.log("CURSOR IS", curs);
+                const line = view.editor.getLine(curs.line);
+                view.editor.setLine(curs.line, line + " TWEE DOODLY DOODLYWUM");
+        */
     }
 
     async onOpen () {
@@ -38,14 +50,23 @@ export class PojoCreate extends Modal {
             self.pojo.logError("ERROR initializing Databases!");
         }
 
-        self.tags = self.pojo.getSuggestedTags();
-        self.tagsearch = new Searcher(this.tags, { keySelector: (obj) => obj.name });
+        const view = self.app.workspace.getActiveViewOfType(MarkdownView);
+        const curs = view.editor.getCursor();
+        // curs will have ch and line
+        console.log("CURSOR IS", curs);
+        const currLineNum = curs.line;
+        const currLineText = view.editor.getLine(currLineNum);
 
-        console.log("HERE ARE TAGS", this.tags);
-        console.log("HERE IS tagsearch", this.tagsearch);
+        console.log("HERE is the currLineText", currLineText);
 
-        let msg;
-        msg = "Pojo Version: " + this.settings.version_manifest + " | Settings Version: " + this.settings.version_settings;
+        let pExistingInfo = null;
+        if (currLineText && currLineText.charAt(0) == "#") {
+            const pline = currLineText.slice(1);
+            pExistingInfo = this.pojo.parsePojoLine(pline);
+            console.log("HERE IS pExistingInfo!", pExistingInfo);
+        }
+
+        const msg = "Pojo Version: " + this.settings.version_manifest + " | Settings Version: " + this.settings.version_settings;
 
         const todaydailyname = self.pojo.getDailyNoteName(null);
         console.log("TODAY's Daily NOTE NAME is ", todaydailyname);
@@ -54,12 +75,34 @@ export class PojoCreate extends Modal {
         contentEl.empty();
         this.titleEl.setText("POJO Create Structured Entry");
 
-        new TagModal(app, self.tags,
-            function (selitem: object) {
-                console.log("HERE is the selected item", selitem);
-                self.metaDetails(self, selitem.item);
-            }
-        ).open();
+        const _cbResult = function (result: string) {
+            console.log("HERE is thre result", result);
+
+            view.editor.setLine(currLineNum, result);
+        }
+
+        if (!pExistingInfo) {
+            self.tags = self.pojo.getSuggestedTags();
+            self.tagsearch = new Searcher(this.tags, { keySelector: (obj) => obj.name });
+
+            console.log("HERE ARE TAGS", this.tags);
+            console.log("HERE IS tagsearch", this.tagsearch);
+
+
+
+            new TagModal(app, self.tags,
+                function (selitem: object) {
+                    console.log("HERE is the selected item", selitem);
+                    self.metaDetails(
+                        self,
+                        selitem.item,
+                        _cbResult
+                    )
+                }
+            ).open();
+        } else {
+            self.metaDetails(self, pExistingInfo, _cbResult);
+        }
     }
 
     onClose () {
@@ -67,18 +110,16 @@ export class PojoCreate extends Modal {
         contentEl.empty();
     }
 
-    metaDetails (self: object, sitem: object) {
+    metaDetails (self: object, sitem: object, cb: any) {
+
+        console.log("metaDetails with sitem", sitem);
+
         const contentEl = this.contentEl;
-
-        const tag = "";
-        const tag2 = "";
-        let firstItem;
-
-        const dbname = sitem.db;
-        const meta = self.pojo.getTagMetadata(dbname, sitem.type);
+        const dbname = sitem._database;
+        const meta = self.pojo.getTagMetadata(dbname, sitem._type);
         console.log('HERE IS meta ', meta);
 
-        const base = `#${dbname}/${sitem.type} `;
+        const base = `#${dbname}/${sitem._type}`;
 
         const topEl = new Setting(contentEl)
             .setName("Information")
@@ -86,6 +127,7 @@ export class PojoCreate extends Modal {
 
         const metaobj = {};
         let bigtextfield;
+        let finalcommand;
         const _updateCmd = function (fname: string, cmd: string, paramnum: number) {
             if (paramnum) {
                 for (let n = 1; n < paramnum; n++) {
@@ -99,13 +141,21 @@ export class PojoCreate extends Modal {
                 metaobj[fname] = cmd;
             }
 
-            console.log("HERE IS metaobj", metaobj);
+            //            console.log("HERE IS metaobj", metaobj);
 
-            let msg = base;
+            let meta = "";
+            let params = "";
             for (const field in metaobj) {
-                msg += " " + metaobj[field];
+                const fv = metaobj[field];
+                if (fv.charAt(0) == '@') {
+                    meta += " " + fv;
+                } else {
+                    params += " " + fv;
+                }
             }
+            const msg = base + params + meta;
             topEl.setDesc(msg);
+            finalcommand = msg;
             if (bigtextfield) {
                 bigtextfield.setValue(msg);
             }
@@ -127,7 +177,7 @@ export class PojoCreate extends Modal {
                         })
                     })
                     .addDropdown(dropDown => {
-                        console.log("ADDING DROPDOWN", mfield);
+                        //                      console.log("ADDING DROPDOWN", mfield);
                         dropDown.addOption("", "Choose Value:");
                         for (const v of mfield.vals) {
                             dropDown.addOption(v, v);
@@ -172,7 +222,7 @@ export class PojoCreate extends Modal {
             }
         }
 
-        console.log("DUDDE SO FAE...");
+        //        console.log("DUDDE SO FAE...");
 
         const _setupTimeChooser = function (dd: DropdownComponent, unit: string, display: string, bDuration: boolean) {
             const hhmax = bDuration ? 8 : 24;
@@ -193,7 +243,7 @@ export class PojoCreate extends Modal {
         };
 
 
-        console.log("HERE is metameta", self.settings.metameta);
+        //        console.log("HERE is metameta", self.settings.metameta);
 
         const _getTime = function (date: Date) {
 
@@ -219,7 +269,7 @@ export class PojoCreate extends Modal {
                 switch (mobj.type) {
                     case 'start-time':
                     case 'end-time':
-                        console.log("HERE BE ", mobj);
+                        //                        console.log("HERE BE ", mobj);
                         timeEl.addDropdown(ddd => {
                             _setupTimeChooser(ddd, mobj.units[0], mobj.display, false);
                             if (mobj.type == 'start-time') {
@@ -262,7 +312,7 @@ export class PojoCreate extends Modal {
                 const mobj = self.settings.metameta[mname];
                 switch (mobj.type) {
                     case 'text':
-                        console.log("HERE BE ", mobj);
+                        //                        console.log("HERE BE ", mobj);
                         textEl.addText(text => {
                             text.setPlaceholder(mobj.name + " " + mobj.display);
                             text.onChange(async (val) => {
@@ -282,7 +332,7 @@ export class PojoCreate extends Modal {
                 const mobj = self.settings.metameta[mname];
                 switch (mobj.type) {
                     case 'scale':
-                        console.log("HERE BE ", mobj);
+                        //                        console.log("HERE BE ", mobj);
                         const sliderEl = new Setting(contentEl);
                         sliderEl.setName(mobj.name);
                         sliderEl.addSlider(slide => {
@@ -324,69 +374,6 @@ export class PojoCreate extends Modal {
             text.inputEl.addClass("completr-full-width")
         });
 
-        /*
-                    case 'scale':
-                        setEl
-                            .setName(mname)
-                            .addSlider(slide => {
-                                slide.setLimits(mobj.min, mobj.max, 1);
-                            })
-                        break;
-
-                const del = contentEl.createDiv("ddown");
-                if (meta && meta.length > 0) {
-                    for (const mfield of meta) {
-                        const ddown = new DropdownComponent(del).onChange((v) => {
-                            console.log("Ddown for " + mfield.name, v);
-                        });
-                        ddown.setValue(mfield.vals[0]);
-                        for (let n = 0; n < mfield.vals; n++) {
-                            ddown.addOption(mfield.vals[n], mfield.vals[n]);
-                        }
-                    }
-                }
-        */
-        /*
-                new Setting(contentEl)
-                    .addDropdown()
-                    .addTitle("TEstering")
-                    .addText(text => text
-                        .setValue(tag)
-                        .onChange(async val => {
-                            tag = val;
-                            const results = self.tagsearch.search(val);
-                            if (results) {
-                                listDiv.empty();
-                                let cnt = 0;
-                                for (const item of results) {
-                                    cnt++;
-                                    if (cnt == 1) {
-                                        firstItem = item;
-                                    }
-                                    new Setting(listDiv)
-                                        .setName(item.name)
-                                        .addExtraButton((button) => button
-                                            .onClick(async () => {
-                                                console.log("CLICKED ON item", item);
-                                                listDiv.empty();
-                                            })
-                                        ).settingEl.addClass("completr-settings-list-item");
-                                    if (cnt >= 10) { break; }
-                                }
-                            }
-                        })
-                    )
-                    .addButton(button => button
-                        .setButtonText("Add")
-                        .onClick(() => {
-                            console.log("BINGO on ", firstItem);
-                            listDiv.empty();
-                        })
-                    )
-        
-                listDiv = contentEl.createDiv();
-        */
-
         new Setting(this.modalEl)
             .addButton(button => {
                 button.setButtonText("OK")
@@ -394,6 +381,7 @@ export class PojoCreate extends Modal {
                 button.onClick(async () => {
                     console.log("CLICK OK");
                     //                    await clickCallback(edittext);
+                    if (cb) { cb(finalcommand); }
                     this.close();
                 })
             })
@@ -406,8 +394,8 @@ export class PojoCreate extends Modal {
 
 
 interface TagChoice {
-    database: string,
-    type: string,
+    _database: string,
+    _type: string,
     name: string
 }
 

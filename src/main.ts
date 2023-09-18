@@ -117,7 +117,7 @@ export default class PojoPlugin extends Plugin {
 
         // POJO Action Dialog
         this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
-            Pojo.pojoZap(this.app, false, this.statusbar);
+            Pojo.pojoZap(this.app, this.statusbar);
         })
 
         this.addRibbonIcon('database', 'Pojo Create Entry', () => {
@@ -125,159 +125,28 @@ export default class PojoPlugin extends Plugin {
         })
 
         this.addCommand({
-            id: 'completr-open-suggestion-popup',
-            name: 'Open suggestion popup',
-            hotkeys: [
-                {
-                    key: " ",
-                    modifiers: ["Mod"]
-                }
-            ],
-            editorCallback: (editor) => {
-                //This is the same function that is called by obsidian when you type a character
-                (this._suggestionPopup as any).trigger(editor, this.app.workspace.getActiveFile(), true);
-            },
-            // @ts-ignore
-            isVisible: () => !this._suggestionPopup.isVisible()
-        });
-        this.addCommand({
-            id: 'completr-select-next-suggestion',
-            name: 'Select next suggestion',
-            hotkeys: [
-                {
-                    key: "ArrowDown",
-                    modifiers: []
-                }
-            ],
-            repeatable: true,
-            editorCallback: (editor) => {
-                this.suggestionPopup.selectNextItem(SelectionDirection.NEXT);
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
-            id: 'completr-select-previous-suggestion',
-            name: 'Select previous suggestion',
-            hotkeys: [
-                {
-                    key: "ArrowUp",
-                    modifiers: []
-                }
-            ],
-            repeatable: true,
-            editorCallback: (editor) => {
-                this.suggestionPopup.selectNextItem(SelectionDirection.PREVIOUS);
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
-            id: 'completr-insert-selected-suggestion',
-            name: 'Insert selected suggestion',
-            hotkeys: [
-                {
-                    key: "Enter",
-                    modifiers: []
-                }
-            ],
-            editorCallback: (editor) => {
-                this.suggestionPopup.applySelectedItem();
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
-            id: 'completr-bypass-enter-key',
-            name: 'Bypass the popup and press Enter',
-            hotkeys: [
-                {
-                    key: "Enter",
-                    modifiers: ["Ctrl"]
-                }
-            ],
-            editorCallback: (editor) => {
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
-            id: 'completr-bypass-tab-key',
-            name: 'Bypass the popup and press Tab',
-            hotkeys: [
-                {
-                    key: "Tab",
-                    modifiers: ["Ctrl"]
-                }
-            ],
-            editorCallback: (editor) => {
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
-            id: 'completr-close-suggestion-popup',
-            name: 'Close suggestion popup',
-            hotkeys: [
-                {
-                    key: "Escape",
-                    modifiers: []
-                }
-            ],
-            editorCallback: (editor) => {
-                this.suggestionPopup.close();
-            },
-            // @ts-ignore
-            isVisible: () => this._suggestionPopup.isVisible(),
-        });
-        this.addCommand({
-            id: 'completr-jump-to-next-snippet-placeholder',
-            name: 'Jump to next snippet placeholder',
-            hotkeys: [
-                {
-                    key: "Enter",
-                    modifiers: []
-                }
-            ],
+            id: 'pojo-create-edit-metadata',
+            name: 'Create or Edit Structured Data Entry',
             editorCallback: (editor, view) => {
-                const placeholder = this.snippetManager.placeholderAtPos(editor.getCursor());
-                //Sanity check
-                if (!placeholder)
-                    return;
-                const placeholderEnd = posFromIndex(editorToCodeMirrorState(placeholder.editor).doc, placeholder.marker.to);
-
-                if (!this.snippetManager.consumeAndGotoNextMarker(editor)) {
-                    editor.setSelections([{
-                        anchor: {
-                            ...placeholderEnd,
-                            ch: Math.min(editor.getLine(placeholderEnd.line).length, placeholderEnd.ch + 1)
-                        }
-                    }]);
-                }
+                Pojo.pojoCreate(this.app, this.statusbar);
             },
             // @ts-ignore
             isVisible: () => {
                 const view = this.app.workspace.getActiveViewOfType(MarkdownView);
                 if (!view)
                     return false;
-                const placeholder = this.snippetManager.placeholderAtPos(view.editor.getCursor());
-                return placeholder != null;
+                const crsr = view.editor.getCursor();
+                console.log("HERE is the crsr", crsr);
+                return false;
             },
         });
         this.addCommand({
-            id: 'completr-pojo-hint',
-            name: 'Show some helpful information for POJO.',
-            hotkeys: [
-                {
-                    key: "H",
-                    modifiers: ["Shift"]
-                }
-            ],
+            id: 'pojo-dialog',
+            name: 'POJO Main Dialog.',
             editorCallback: (editor) => {
-                Pojo.pojoZap(this.app, true);
-            },
-            // @ts-ignore
-            isVisible: () => Pojo.isHint(),
+                console.log("editorCallback for pojo-dialog")
+                Pojo.pojoZap(this.app, this.statusbar);
+            }
         });
     }
 

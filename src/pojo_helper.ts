@@ -22,6 +22,7 @@ export class PojoHelper {
     private logs: object;
     private debugging: boolean;
     private errorstack: null;
+    private pojoDatabases: [];
 
     constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault, app: App) {
         this.pojoProvider = pojoProvider;
@@ -390,7 +391,8 @@ export class PojoHelper {
             for (const fobj of dbfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
                 this.logDebug("Get Markdown Info", fname.path);
-                const fm = await this.getMarkdownFileInfo(fname, false);
+                const finfo = await this.getMarkdownFileInfo(fname, "yaml", false);
+                const fm = finfo?.frontmatter;
                 if (fm) {
                     this.logDebug("FMINFO ", fm);
                     const dbname = fm._database.database;
@@ -418,11 +420,19 @@ export class PojoHelper {
         return true;
     }
 
-    getDatabases (bDetailed: boolean): string[] {
+    getDatabases (bDetailed: boolean, bLowerCase = false): string[] {
         if (bDetailed) {
             return this.loadedPojoHistory;
         } else {
-            return this.pojoDatabases;
+            if (bLowerCase) {
+                const lc = [];
+                for (const db of this.pojoDatabases) {
+                    lc.push(db.toLowerCase());
+                }
+                return lc;
+            } else {
+                return this.pojoDatabases;
+            }
         }
     }
 
@@ -439,7 +449,7 @@ export class PojoHelper {
             for (const fobj of tfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
                 this.logDebug("Get Markdown Info", fname.path);
-                const finfo = await this.getMarkdownFileInfo(fname, true);
+                const finfo = await this.getMarkdownFileInfo(fname, "content", true);
                 // finfo.content finfo.frontmatter
                 if (finfo && finfo.frontmatter && finfo.frontmatter.Category) {
                     this.logDebug("FMINFO ", finfo);
@@ -448,7 +458,7 @@ export class PojoHelper {
 
                     if (finfo.frontmatter.Type == "MOC-Template") {
                         // Search for line with POJO_VARS_HERE. That line will be used to split the start and end
-                        const ca = finfo.content.split("\n");
+                        const ca = finfo.bodycontent.split("\n");
                         const castart = [];
                         const caend = [];
                         let mode = 0;
@@ -465,7 +475,7 @@ export class PojoHelper {
                         templates[catname].contentstart = castart.join("\n");
                         templates[catname].contentend = caend.join("\n");
                     } else {
-                        templates[catname].content = finfo.content;
+                        templates[catname].content = finfo.bodycontent;
                     }
                 } else {
                     this.logError("ERROR in MOC Template file " + fobj.path, finfo);
@@ -492,7 +502,7 @@ export class PojoHelper {
 
         if (fieldi.type == "duration") {
             if (pvalue > 60) {
-                pvalue = pvalue / 60 + " hr";
+                pvalue = Math.round(pvalue / 6) / 10 + " hr";
             } else {
                 pvalue += " min";
             }
@@ -700,15 +710,17 @@ export class PojoHelper {
         return retarray;
     }
 
-    getDatabaseInfo (dbname: string): object | null {
+    getDatabaseInfo (dbname: string, bQuiet = false): object | null {
         if (dbname == this.defsec) {
             return null;
         }
 
         const dbinfo = this.loadedPojoDB[dbname];
         if (!dbinfo) {
-            console.error("ERROR " + dbname, this.loadedPojoDB);
-            this.logError("ERROR missing database info in pojo settings", dbname);
+            if (!bQuiet) {
+                console.error("ERROR dbname of :" + dbname + ":", this.loadedPojoDB);
+                this.logError("ERROR missing database info in pojo settings", dbname);
+            }
             return null;
         }
         return dbinfo;
@@ -911,7 +923,7 @@ export class PojoHelper {
     }
 */
 
-    async getMarkdownFileInfo2 (mfile: TFile, bContentAlso: boolean): object | null {
+    async _getMarkdownFileInfoNoCache (mfile: TFile, bContentAlso: boolean): Promise<object | null> {
         // Returns file frontmatter ONLY if bContent is false.
         let content;
         if (bContentAlso) {
@@ -953,19 +965,33 @@ export class PojoHelper {
         if (bContentAlso) {
             return {
                 frontmatter: frontmatter,
-                content: bodytext
+                bodycontent: bodytext
             }
         } else {
             return frontmatter;
         }
     }
 
-    async getMarkdownFileInfo (mfile: TFile, bContentAlso: boolean): object | null {
+    async getMarkdownFileInfo (mfile: TFile, mode: string, bNoCache: boolean): Promise<object | null> {
+        // mode is:
+        //  content - return frontmatter, bodycontent
+        //  filecache - return frontmatter, bodycontent, filecache, and origcontent
+        //  yaml - return just frontmatter
+
+        const bContentAlso = mode == "content" || mode == "filecache" ? true : false;
+        const bFileCacheInfo = mode == "filecache" ? true : false;
+        if (bNoCache) {
+            // This one will not rely on the metadataCache.
+            const mret = await this._getMarkdownFileInfoNoCache(mfile, bContentAlso);
+            mret.inputfile = mfile;
+            return mret;
+        }
+
         // Returns file frontmatter ONLY if bContent is false.
-        let content;
+        let origcontent;
         if (bContentAlso) {
             try {
-                content = await this.vault.read(mfile);
+                origcontent = await this.vault.read(mfile);
             } catch (err) {
                 this.logError("ERROR reading file ", mfile.path);
                 this.logError("Error", err);
@@ -975,6 +1001,7 @@ export class PojoHelper {
 
         //        console.log("Get content for file: " + mfile.path);
 
+        let fcache = null;
         let frontmatter = {};
         let bodytext = "";
         try {
@@ -982,6 +1009,9 @@ export class PojoHelper {
             const filecontent = this.app.metadataCache.getFileCache(mfile);
             frontmatter = filecontent?.frontmatter;
 
+            if (bFileCacheInfo) {
+                fcache = filecontent;
+            }
 
             if (bContentAlso) {
                 let endfm = 0;
@@ -989,22 +1019,29 @@ export class PojoHelper {
                     // Remove the frontmatter.
                     endfm = filecontent.sections[0].position.end.line + 1;
                 }
-                bodytext = content.split("\n").slice(endfm).join("\n");
+                bodytext = origcontent.split("\n").slice(endfm).join("\n");
             }
+
         } catch (err) {
             this.logError("ERROR extracting frontmatter " + mfile.path);
             this.logError("ERROR reading file contents ", err);
             return null;
         }
 
+        const iret = {};
         if (bContentAlso) {
-            return {
-                frontmatter: frontmatter,
-                content: bodytext
-            }
+            iret.frontmatter = frontmatter;
+            iret.bodycontent = bodytext;
         } else {
-            return frontmatter;
+            iret.frontmatter = frontmatter;
         }
+        if (bFileCacheInfo) {
+            iret.filecache = fcache;
+            iret.origcontent = origcontent;
+        }
+        iret.inputfile = mfile;
+
+        return iret;
     }
 
     addToHistoryFromLine (line: string): boolean {
@@ -1274,7 +1311,7 @@ export class PojoHelper {
         await vault.adapter.write(pluginPath(vault, POJO_HISTORY_FILE), JSON.stringify(this.loadedPojoHistory, null, 3));
     }
 
-    parsePojoLine (tagline: string): object | null {
+    parsePojoLine (tagline: string, bQuiet = false): object | null {
 
         if (!tagline) return null;
         let bTrailingSpace = false;
@@ -1332,7 +1369,7 @@ export class PojoHelper {
             robj._type = this.normalizeValue(taga[1]);
         }
 
-        const dbinfo = this.getDatabaseInfo(robj._database);
+        const dbinfo = this.getDatabaseInfo(robj._database, bQuiet);
         if (!dbinfo) {
             // ERROR
             return null;
@@ -1466,6 +1503,9 @@ export class PojoHelper {
         //        this.logDebug("HERE IS ROBJ", robj);
         //        console.log("HERE DA ROBJ", robj);
 
+        // Check parsed info for any tags and process according to the metameta settings!
+        this.extractMetaMeta(robj);
+
         return robj;
     }
 
@@ -1516,7 +1556,7 @@ export class PojoHelper {
 
         for (const db in this.loadedPojoDB) {
             const dbinfo = this.loadedPojoDB[db];
-            console.log("db info for " + db, dbinfo);
+            //            console.log("db info for " + db, dbinfo);
             const pobj = {
                 _loc: "type",
                 _database: db
@@ -1602,21 +1642,18 @@ export class PojoHelper {
         return null;
     }
 
-    private normalizeReference (ref: string): object {
+    normalizeReference (ref: string): string {
         // Tags and Header3 sections are case insensitive but normalized to a canonical form.
         const a = ref.split("/");
         if (a.length == 1) {
-            // NOT actually a database name, just the normalized value
             return this.normalizeValue(ref);
         } else {
             const norm = [];
-            for (w of a) {
+            for (const w of a) {
                 norm.push(this.normalizeValue(w));
             }
             const nref = norm.join("/");
-            const database = norm[0];
-            const type = norm[1];
-            return { database, type, nref };
+            return nref;
         }
     }
 

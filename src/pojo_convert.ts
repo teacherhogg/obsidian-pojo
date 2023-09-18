@@ -1,7 +1,11 @@
 import { Vault, TFile, App, getAllTags, stringifyYaml, parseYaml } from "obsidian";
+// BELOW IS DEPRECATED!
 import { parse } from "@textlint/markdown-to-ast";
+// BELOW IS DEPRECATED!
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { PojoSettings, generatePath } from "./settings";
 import * as path from "path";
+import * as url from "url";
 // import convert from "heic-convert";
 
 
@@ -89,7 +93,7 @@ export class PojoConvert {
                 info.mocCollisions.push(mocFileName);
                 const mocFile = generatePath(self.settings.folder_moc, mocFileName);
                 const mocFileRef = self.vault.getAbstractFileByPath(mocFile) as TFile;
-                mocFileInfo = await self.pojo.getMarkdownFileInfo2(mocFileRef, true);
+                mocFileInfo = await self.pojo.getMarkdownFileInfo(mocFileRef, "content", true);
                 //                console.log("mocFileInfo2 returns", mocFileInfo);
                 if (!mocFileInfo) {
                     console.error("SOMETHING WRONG! Missing existing MOC file.", mocExistingFile);
@@ -361,17 +365,19 @@ export class PojoConvert {
         return {};
     }
 
-    async convertDailyNote (inputFile: TFile, imageactions: object, convertAgain: boolean, convertTry: boolean): Promise<object> {
+    async convertDailyNote (inputFile: TFile, databases: string[], suggestedTags: object[], imageactions: object, convertAgain: boolean, convertTry: boolean): Promise<object> {
 
 
         // We are converting a daily note AGAIN if convertAgain is ture
         // This means the original file has already been archived and we need to redo from that copy!
 
         this.pojo.logDebug("Converting Daily Note ", inputFile, convertAgain);
+        console.log("HERE are suggestedTags", suggestedTags);
+        console.log("HERE are databases", databases);
 
         let fname = null;
+        let fileinfo = null;
         let contentFile = inputFile;
-        let filecontent = null;
         let archiveFile = !convertAgain;
         if (convertTry) {
             archiveFile = false;
@@ -393,10 +399,11 @@ export class PojoConvert {
                 //                console.log("READING FILE", contentFile);
             }
 
-            filecontent = await this.vault.read(contentFile);
+
+            fileinfo = await this.pojo.getMarkdownFileInfo(contentFile, "filecache", false);
 
         } catch (err) {
-            this.logError("ERROR on reading file!", err);
+            this.logError("ERROR on reading file info!", err);
             console.error("input file", inputFile);
             console.error("ERROR reading content of file " + fname, contentFile);
             return {
@@ -405,24 +412,28 @@ export class PojoConvert {
             }
         }
 
+        console.log("HERE Is fileinfo!!!", fileinfo);
+
+        const bCompareDeprecated = false;
+        if (bCompareDeprecated) {
+            console.warn("Converting TWICE including old markdown parsing!");
+        }
+
         // Start import of Daily Note markdown file.
         let frontmatter = null;
         let diarydate = null;
         let parsedcontent = null;
         let tags = null;
         try {
-            // Extract any YAML
-            frontmatter = this.app.metadataCache.getFileCache(contentFile)?.frontmatter;
+            // Check for frontmatter
+            frontmatter = fileinfo?.frontmatter;
             if (!frontmatter) { frontmatter = {}; }
-
-            //            console.log("HERE Is frontmatter!!!", frontmatter, inputFile);
 
             //            const filematter = matter(content);
             //            frontmatter = filematter.data;
 
             // TODO - Check to see if Daily Note has ALREADY been converted!
             if (frontmatter && frontmatter.POJO) {
-                //                console.log("FILE being converted is " + fname, filecontent);
                 this.pojo.logDebug("Already Converted!", frontmatter);
                 return {
                     "type": "noconvert_alreadyconverted",
@@ -430,13 +441,18 @@ export class PojoConvert {
                 }
             }
 
+            /**
+             * fcache will possibly include keys: 
+             *  embeds, headings, links, listItems, sections, tags
+             */
+
+
+
             // Parse the markdown contents
-            this.currentfile = contentFile;
             this.currentdb = this.defsec;
             this.currentidx = 0;
 
-            parsedcontent = this.parseMarkdown(filecontent);
-            this.currentfile = null;
+            parsedcontent = this.parseMarkdownNew(fileinfo, databases, suggestedTags, true);
 
             // Check to see IF this is actually a daily note
             if (!parsedcontent || Object.keys(parsedcontent).length == 0) {
@@ -478,9 +494,49 @@ export class PojoConvert {
             }
         }
 
-        // console.warn("FINISHED import of markdown file", parsedcontent);
         this.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
         console.log("Parsed Content", parsedcontent);
+        console.log("Tags " + diarydate, tags);
+
+        if (bCompareDeprecated) {
+            this.currentfile = contentFile;
+            let parsedcontentOLD;
+            try {
+                parsedcontentOLD = this.parseMarkdownDEPRECATED(fileinfo.origcontent);
+            } catch (err) {
+                console.error("ERROR parsing content with OLD method ", err);
+                return {
+                    "type": "error_parsing",
+                    "msg": "Error Encountered: " + err.message
+                }
+            }
+            this.currentfile = null;
+            console.log("Parsed Content OLD", parsedcontentOLD);
+
+            // Content Comparison!
+
+            for (const cs in parsedcontent) {
+                const as = parsedcontent[cs];
+                for (let nn = 0; nn < as.length; nn++) {
+                    //                    console.log("HERE BE " + cs + " >" + nn + "<");
+                    const obj2 = parsedcontent[cs][nn];
+                    const obj1 = parsedcontentOLD[cs] ? parsedcontentOLD[cs][nn] : null;
+                    if (!obj1) {
+                        console.error("DIFFERENCE - NOT FOUND in old parse", obj2);
+                    } else {
+                        for (const prop in obj2) {
+                            if (!obj1[prop]) {
+                                console.error("DIFFERENCE - Missing prop " + prop + " in old parse.");
+                            } else {
+                                if (JSON.stringify(obj1[prop]) !== JSON.stringify(obj2[prop])) {
+                                    console.error("OBJECT DIFFERENCE for " + cs + " num " + nn + " and prop " + prop, obj1[prop], obj2[prop]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Construct the NEW daily note from parsedcontent
         const newrecords: object[] = [];
@@ -533,7 +589,7 @@ export class PojoConvert {
             // Archive the original daily note
             if (archiveFile) {
                 const mfolder = generatePath(this.settings.folder_pojo, this.settings.subfolder_archived_daily_notes);
-                await this.pojo.createVaultFile(filecontent, mfolder, this.getNoteFileName(inputFile.name, false, frontmatter["Daily Note"]));
+                await this.pojo.createVaultFile(fileinfo.origcontent, mfolder, this.getNoteFileName(inputFile.name, false, frontmatter["Daily Note"]));
             }
 
             dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
@@ -560,8 +616,9 @@ export class PojoConvert {
         this.pojo.logDebug("Deleting original note :" + orignote + ":");
         const origNoteFile = this.vault.getAbstractFileByPath(orignote);
 
-        const bob = true;
-        if (!bob) {
+        // BOB
+        const nodelorig = false;
+        if (!nodelorig) {
             //        console.log("DELETING original noteFile " + orignote, origNoteFile);
             await this.vault.delete(origNoteFile);
         } else {
@@ -764,7 +821,8 @@ export class PojoConvert {
         for (const tag in taggedfiles) {
             if (taggedfiles[tag].length > 1) {
                 for (const file of taggedfiles[tag]) {
-                    const fm = await this.pojo.getMarkdownFileInfo(file);
+                    const finfo = await this.pojo.getMarkdownFileInfo(file, "yaml", false);
+                    const fm = finfo?.frontmatter;
                     if (fm && fm.metainfo) {
                         //                        console.warn("GOTS metainfo for tag " + tag);
                         const ta = tag.slice(1).split("/");
@@ -882,9 +940,204 @@ export class PojoConvert {
         return exported;
     }
 
+    private parseMarkdownNew (fileinfo: object, databases: string[], suggestedtags: object[], bLessStrict: boolean): object {
+        const self = this;
+        console.log("parseMarkdownNew", fileinfo, suggestedtags);
+        const filecache = fileinfo.filecache;
+
+        const sections = {};
+        const _addSection = function (sec: string, sline: number) {
+            if (sec) {
+                sec = self.pojo.normalizeReference(sec);
+            }
+            sections[sline + ""] = sec;
+        }
+
+        const info = {};
+
+        let startline = 0;
+        if (filecache?.frontmatterPosition?.end.line) {
+            startline = filecache.frontmatterPosition.end.line + 1;
+        }
+        _addSection(this.defsec, startline);
+
+
+        const _checkMatch = function (tval: string): string | null {
+
+            // Check if daily entry
+            if (tval.startsWith(self.defsec)) {
+                return self.defsec;
+            } else {
+                let found = false;
+                if (bLessStrict) {
+                    const db = tval.split("/")[0];
+                    found = databases.includes(db.toLowerCase());
+                } else {
+                    found = suggestedtags.find(el => {
+                        if (el.name.toLowerCase() == tval.toLowerCase()) {
+                            return true;
+                        }
+                    })
+                }
+
+                if (found) {
+                    //                    console.log("MATCH on >>" + tval + "<<");
+                    return tval;
+                }
+            }
+
+            //            console.log("NO MATCH on >>" + tval + "<<");
+            return null;
+        }
+
+        // Figure out the SECTIONS start and end lines. 
+        // SECTION is defined by EITHER a tag OR an H3 (that matches a suggestedtag) 
+        const skiplines = {};
+        if (filecache.headings) {
+            for (const head of filecache.headings) {
+                if (head.level == 3) {
+                    const sect = _checkMatch(head.heading.trim());
+                    if (sect) {
+                        _addSection(sect, head.position.start.line)
+                        if (head.heading == self.defsec) {
+                            skiplines[head.position.start.line + ""] = head.heading;
+                        }
+                    }
+                } else if (head.level == 1 || head.level == 2) {
+                    const htext = head.heading.trim();
+                    if (!info.title) {
+                        // Title is the FIRST H1 or H2 in the file.
+                        info.title = htext;
+                        skiplines[head.position.start.line + ""] = htext;
+                    }
+                    if (!info.Date && head.level == 1) {
+                        const date = new Date(htext);
+                        //            console.log("CONVERT " + line + " to date:", date)
+                        if (!date || (date instanceof Date && isNaN(date.valueOf()))) {
+                            // See if it is an ISO Date
+                            info.ISODave = htext;
+                            info.Date = this.convertISODave(htext);
+                        } else {
+                            info.Date = htext;
+                        }
+                        skiplines[head.position.start.line + ""] = htext;
+                    }
+                }
+            }
+        }
+
+        if (!info.Date) {
+            info.Date = this.getDateFromFile(fileinfo.inputfile);
+            console.log("GOT date from file!");
+        }
+        console.log("HERE is the info", info);
+        console.log("HERE is the SKIP LINES", skiplines);
+
+        if (filecache.tags) {
+            for (const tago of filecache.tags) {
+                const sect = _checkMatch(tago.tag.trim().slice(1));
+                if (sect) { _addSection(sect, tago.position.start.line) }
+            }
+
+        }
+
+        console.log("HERE are the sections", sections);
+        const fcontent = fileinfo.origcontent.split("\n");
+        console.log("File Content is ", fcontent);
+
+        const _removeHash = function (input: string): string {
+            let line = input.trimStart();
+            while (line.charAt(0) == "#") {
+                line = line.slice(1).trimStart();
+            }
+            return line;
+        }
+
+        // NOW go through file adding to appropriate sections!
+        const doc = {};
+        let currsect = this.defsec;
+        for (let lnum = startline; lnum < fcontent.length; lnum++) {
+            const sect = sections[lnum + ""];
+            const line = fcontent[lnum];
+            //            console.log("Parse Line and sect " + sect, line);
+            if (sect) {
+                const db = sect.split("/")[0];
+                if (!doc[db]) { doc[db] = []; }
+                currsect = db;
+                // Parse this line! Remove leading # and whitespace
+                const pline = _removeHash(line);
+                //                console.log("INPUT:" + line + ": OUTPUT:" + pline + ":");
+
+                let bDebug = false;
+                if (db == "Tasks") {
+                    bDebug = true;
+
+                }
+
+                let pobj = null;
+                if (pline) {
+                    if (bDebug) {
+                        console.log("Parsing Pojo L" + lnum + " on >>" + pline + "<< SKIPLINE: " + skiplines[lnum + ""]);
+                    }
+                    if (!skiplines[lnum + ""]) {
+                        const bQuiet = lnum == startline ? true : false;
+                        pobj = self.pojo.parsePojoLine(pline, bQuiet);
+                        if (bDebug) {
+                            console.log("HERE IS parse pojo", pobj);
+                        }
+                    }
+                }
+                if (!pline || !pobj) {
+                    if (doc[db].length == 0) {
+                        const newsect = {
+                            _database: db,
+                            Description: []
+                        }
+                        if (db == this.defsec) {
+                            newsect._Title = info.title;
+                            newsect.Date = info.Date;
+                        }
+                        doc[db].push(newsect);
+                        //                        console.log("HERE be2 for " + db + " line>>" + line + "<<", doc[db]);
+                        if (line && !skiplines[lnum + ""]) {
+                            doc[db][0].Description.push(line);
+                        }
+                    } else {
+                        //                        console.log("HERE be for " + db + " line>>" + line + "<<", doc[db]);
+                        if (!skiplines[lnum + ""] && line) {
+                            doc[db][0].Description.push(line);
+                        } else {
+                            console.log("SKIP THIS LINE " + sect + " -> " + lnum, line);
+                        }
+                    }
+                } else {
+                    //                    console.log(`LINE ${lnum} and db ${db}`, doc[db]);
+                    doc[db].push(pobj);
+                }
+            } else {
+                //                console.log("HERE is doc and currsect " + currsect, doc);
+                const snum = doc[currsect].length;
+                const cobj = doc[currsect][snum - 1];
+                //                console.log("HERE is the current obj " + currsect + " num " + snum);
+                //                console.log("HERE is doc", doc);
+                if (!skiplines[lnum + ""] && line) {
+                    if (!cobj.Description) { cobj.Description = []; }
+                    cobj.Description.push(line);
+                }
+            }
+        }
+
+        return doc;
+    }
+
+
     // Parse markdown into Abstract Symbolic Tree (AST)
-    private parseMarkdown (mdcontent) {
+    private parseMarkdownDEPRECATED (mdcontent) {
         const ast = parse(mdcontent);
+        console.log("ast 1", ast);
+
+        const ast2 = fromMarkdown(mdcontent);
+        console.log("ast 2", ast2);
 
         this.logDebug("astTree", "AST Tree", ast);
 
@@ -898,14 +1151,14 @@ export class PojoConvert {
 
         this.logDebug("debug", ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
         for (const child of ast.children) {
-            const rval = this.parseAST(child);
+            const rval = this.parseASTDEPRECATED(child);
             if (!rval) {
                 // ERROR
                 this.pojo.logError("parseAST error encountered. Continuing to Process...");
                 continue;
             }
             this.logDebug("debug", rval.key, rval.values);
-            if (!this.parseItem(parsed, rval.key, rval.values)) {
+            if (!this.parseItemDEPRECATED(parsed, rval.key, rval.values)) {
                 // ERROR
                 this.pojo.logError("parseItem error encoutered. Continuing to Process...");
                 continue;
@@ -915,7 +1168,7 @@ export class PojoConvert {
         return parsed;
     }
 
-    private parseAST (el: object): object {
+    private parseASTDEPRECATED (el: object): object {
 
         let key, values;
         switch (el.type) {
@@ -1027,15 +1280,14 @@ export class PojoConvert {
         return false;
     }
 
-    private parseLine (parsed: object, key: string, line: string): boolean {
+    private parseLineDEPRECATED (parsed: object, key: string, line: string): boolean {
 
         const self = this;
-        this.pojo.logDebug("parseLine " + key, line);
 
         const _addParsed = function (info) {
 
             // Check parsed info for any tags and process according to the metameta settings!
-            self.pojo.extractMetaMeta(info);
+            //            self.pojo.extractMetaMeta(info);
 
             //            this.pojo.logDebug("_addParsed", info);
             const dbref = info._database;
@@ -1088,16 +1340,27 @@ export class PojoConvert {
             // Image, possibly with caption. Use the Obsidian plugin for image captions.
             if (line && line.imageurl) {
                 let decurl;
+                let urlinfo;
                 try {
                     decurl = decodeURI(line.imageurl);
+                    urlinfo = url.parse(decurl);
                 } catch (err) {
                     this.exitNow(["ERROR decoding image uri " + err.message]);
                 }
-                line.imageurl = decurl;
-                this.logDebug("images", line.imageurl);
+                console.log("HERE IS urlinfo", urlinfo);
+                if (urlinfo.protocol == "https:" || urilinfo.protocol == "http:") {
+                    if (!parsed[this.currentdb]) { parsed[this.currentdb] = []; }
+                    if (!parsed[this.currentdb][this.currentidx]) { parsed[this.currentdb][this.currentidx] = {}; }
 
-                if (!parsed[this.defsec][0]._images) { parsed[this.defsec][0]._images = []; }
-                parsed[this.defsec][0]._images.push(line);
+                    if (!parsed[this.currentdb][this.currentidx].Description) { parsed[this.currentdb][this.currentidx].Description = []; }
+                    parsed[this.currentdb][this.currentidx].Description.push(decurl);
+                } else {
+                    line.imageurl = decurl;
+                    this.logDebug("images", line.imageurl);
+
+                    if (!parsed[this.defsec][0]._images) { parsed[this.defsec][0]._images = []; }
+                    parsed[this.defsec][0]._images.push(line);
+                }
             } else {
                 this.logError("Unexpected Image type", line);
                 return false;
@@ -1119,7 +1382,9 @@ export class PojoConvert {
             if (line.charAt(0) == '#') {
                 pline = line.slice(1);
             }
+            //            console.log("ORIG Parsing Pojo on>>" + pline + "<<");
             const pinfo = this.pojo.parsePojoLine(pline);
+            //            console.log("ORIG HERE is parse pojo", pinfo);
             if (!pinfo) {
                 // ERROR
                 return false;
@@ -1180,10 +1445,10 @@ export class PojoConvert {
         return true;
     }
 
-    private parseItem (parsed: object, key: string, values: string[]): boolean {
+    private parseItemDEPRECATED (parsed: object, key: string, values: string[]): boolean {
 
         for (const line of values) {
-            if (!this.parseLine(parsed, key, line)) {
+            if (!this.parseLineDEPRECATED(parsed, key, line)) {
                 return false;
             }
         }
@@ -1684,11 +1949,15 @@ export class PojoConvert {
         // Add Daily Note YAML entry 
         const source = dbentry[this.defsec][0].Date;
 
-        const zdate = new Date(source);
-        const offset = zdate.getTimezoneOffset() * 60 * 1000;
-        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+        const _getLocalDate = function (inputDate) {
+            const zdate = inputDate ? new Date(inputDate) : new Date();
+            const offset = zdate.getTimezoneOffset() * 60 * 1000;
+            const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+            return new Date(zdatenum);
+        }
 
-        const newDate = new Date(zdatenum);
+        const newDate = _getLocalDate(source);
+
         //        console.log("DA DATE from " + source, newDate);
         const dow = newDate.toLocaleDateString("en-US", {
             weekday: "short"
@@ -1708,7 +1977,11 @@ export class PojoConvert {
                 const af = fma.split(":");
                 // Three parameters -> Source Database/param;Field Type;Target Field
                 const sr = af[0].split("/");
-                if (dbentry[sr[0]]) {
+                if (af[0] == "Date/Now") {
+                    // Just add current date and time.
+                    const nowDate = new Date();
+                    frontmatter[af[2]] = nowDate.toDateString() + " " + nowDate.toLocaleTimeString();
+                } else if (dbentry[sr[0]]) {
                     // NOTE we only do this for ONE entry of this database type.
                     const dbe = dbentry[sr[0]][0];
                     //                    this.pojo.logDebug("DATABASE ENTRY", dbe);
@@ -2043,11 +2316,11 @@ export class PojoConvert {
         }
     }
 
-    private getDateFromFile (): string {
+    private getDateFromFile (inputfile: TFile): string {
         // Date returned should be in the format YYYY-MM-DD
         //        this.pojo.logDebug("HERE IS THE currentfile", this.currentfile);
 
-        let datename = this.currentfile.basename;
+        let datename = inputfile ? inputfile.basename : this.currentfile.basename;
 
         const lastchar = datename.charAt(datename.length - 1);
         if (lastchar == "⚡") {
