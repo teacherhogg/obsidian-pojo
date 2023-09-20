@@ -49,7 +49,7 @@ export class PojoZap extends Modal {
         //        }
 
         let msg;
-        msg = "Pojo Version: " + this.settings.version_manifest + " | Settings Version: " + this.settings.version_settings;
+        msg = "POJO Version: " + this.settings.version_manifest + " | Settings Version: " + this.settings.version_settings;
 
         const todaydailyname = self.pojo.getDailyNoteName(null);
         console.log("TODAY's Daily NOTE NAME is ", todaydailyname);

@@ -73,7 +73,7 @@ export class PojoCreate extends Modal {
 
 
         contentEl.empty();
-        this.titleEl.setText("POJO Create Structured Entry");
+        this.titleEl.setText("POJO Create or Edit Structured Entry");
 
         const _cbResult = function (result: string) {
             console.log("HERE is thre result", result);
@@ -115,11 +115,11 @@ export class PojoCreate extends Modal {
         console.log("metaDetails with sitem", sitem);
 
         const contentEl = this.contentEl;
-        const dbname = sitem._database;
-        const meta = self.pojo.getTagMetadata(dbname, sitem._type);
+        const dbname = sitem.db;
+        const meta = self.pojo.getTagMetadata(dbname, sitem.type);
         console.log('HERE IS meta ', meta);
 
-        const base = `#${dbname}/${sitem._type}`;
+        const base = `#${dbname}/${sitem.type}`;
 
         const topEl = new Setting(contentEl)
             .setName("Information")
@@ -129,6 +129,7 @@ export class PojoCreate extends Modal {
         let bigtextfield;
         let finalcommand;
         const _updateCmd = function (fname: string, cmd: string, paramnum: number) {
+            console.log(`_updateCmd called :${fname}: :${cmd}: :${paramnum}:`);
             if (paramnum) {
                 for (let n = 1; n < paramnum; n++) {
                     const key = `p${n}`;
@@ -141,7 +142,7 @@ export class PojoCreate extends Modal {
                 metaobj[fname] = cmd;
             }
 
-            //            console.log("HERE IS metaobj", metaobj);
+            console.log("HERE IS metaobj", metaobj);
 
             let meta = "";
             let params = "";
@@ -173,7 +174,9 @@ export class PojoCreate extends Modal {
                         text.setDisabled(false)
                         mfield.textfield = text;
                         text.onChange(async (val) => {
-                            _updateCmd(mfield.name, val + ";");
+                            text.inputEl.addClass('pojo-set');
+                            mfield.fulltext = val + ";";
+                            _updateCmd(mfield.name, mfield.fulltext, mfield.pnum);
                         })
                     })
                     .addDropdown(dropDown => {
@@ -184,6 +187,7 @@ export class PojoCreate extends Modal {
                         }
                         dropDown.onChange(async (val) => {
                             console.log("DD for " + mfield.name, val);
+                            mfield.textfield.inputEl.addClass('pojo-set');
 
                             const tf = mfield.textfield.getValue();
                             if (!val) {
@@ -210,16 +214,49 @@ export class PojoCreate extends Modal {
                         })
                     })
                     .addExtraButton(button => button
-                        .setIcon('plus-circle')
-                        .setTooltip("Add additional values")
+                        .setIcon('x-circle')
+                        .setTooltip("Clear values")
                         .onClick(async () => {
                             console.log("mfield", mfield);
-                            console.log("CLICKED TO ADD to " + mfield.name)
-                            mfield.fulltext += "," + mfield.textfield.getValue();
-                            mfield.textfield.setValue(mfield.fulltext);
+                            console.log("CLICKED TO CLEAR " + mfield.name)
+                            mfield.fulltext = "";
+                            mfield.textfield.setValue("");
+                            _updateCmd(mfield.name, mfield.fulltext, mfield.pnum);
+                            mfield.textfield.inputEl.removeClass("pojo-set");
                         })
                     );
             }
+        }
+
+        // ExPERIMENTAL ADDING...
+        const bob = true;
+
+        if (!bob) {
+
+            if (meta && meta.length > 0) {
+                let pnum = 0;
+                for (const mfield of meta) {
+                    pnum++;
+                    mfield.pnum = pnum;
+                    new Setting(contentEl)
+                        .setName("EX " + mfield.name)
+                        .addText(text => {
+                            text.setDisabled(false)
+                            mfield.textfieldex = text;
+                            text.onChange(async (val) => {
+                                console.log("TODO implement onChange for " + val);
+                                //                            _updateCmd(mfield.name, val + ";");
+                            })
+                        })
+                        .addSearch(search => {
+                            search.setPlaceholder("Get Going...");
+                            search.onChange(async (val) => {
+                                search.selectEl.addClass('pojo-set');
+                            });
+                        });
+                }
+            }
+
         }
 
         //        console.log("DUDDE SO FAE...");
@@ -247,11 +284,14 @@ export class PojoCreate extends Modal {
 
         const _getTime = function (date: Date) {
 
-            const hr = date.getHours();
+            let hr = date.getHours();
+            let min = Math.ceil((date.getMinutes() - 2) / 5) * 5;
+            if (min == 60) {
+                hr++;
+                min = 0;
+            }
+
             let time = hr < 10 ? `0${hr}:` : `${hr}:`;
-
-            const min = Math.ceil((date.getMinutes() - 2) / 5) * 5;
-
             time += min < 10 ? `0${min}` : `${min}`;
 
             return time;
@@ -274,12 +314,14 @@ export class PojoCreate extends Modal {
                             _setupTimeChooser(ddd, mobj.units[0], mobj.display, false);
                             if (mobj.type == 'start-time') {
                                 _updateCmd(mname, `@${start}${mobj.units[0]}`);
+                                ddd.selectEl.addClass('pojo-set');
                                 ddd.setValue(`${start}`);
                             } else {
                                 ddd.setValue(`${start}`);
                             }
                             ddd.onChange(async (val) => {
                                 console.log("Val for " + mobj.name, val);
+                                ddd.selectEl.addClass('pojo-set');
                                 const nval = `@${val}${mobj.units[0]}`;
                                 _updateCmd(mname, nval);
                             })
@@ -291,6 +333,7 @@ export class PojoCreate extends Modal {
                             ddd.setValue('50');
                             ddd.onChange(async (val) => {
                                 console.log("Val for " + mobj.name, val);
+                                ddd.selectEl.addClass('pojo-set');
                                 const vala = val.split(":");
                                 let mins = parseInt(val, 10);
                                 console.log("HERE mins " + mins, vala);
@@ -316,6 +359,7 @@ export class PojoCreate extends Modal {
                         textEl.addText(text => {
                             text.setPlaceholder(mobj.name + " " + mobj.display);
                             text.onChange(async (val) => {
+                                text.inputEl.addClass('pojo-set');
                                 console.log("HERE is text for " + mobj.name);
                                 const nval = `@${val}${mobj.units[0]}`;
                                 _updateCmd(mname, nval);
@@ -342,6 +386,7 @@ export class PojoCreate extends Modal {
                             slide.onChange(async (val) => {
                                 console.log(mobj.name + " val is " + val);
                                 mobj.textfield.setValue(val + " " + mobj.display);
+                                mobj.textfield.inputEl.addClass('pojo-set');
                                 _updateCmd(mobj.name, `@${val}${mobj.units[0]}`);
                             })
                         });
@@ -360,6 +405,7 @@ export class PojoCreate extends Modal {
         descEl.addTextArea(ta => {
             ta.setPlaceholder("Optionally add Description Here");
             ta.onChange(async (val) => {
+                ta.inputEl.addClass('pojo-set');
                 console.log("Description is ", val);
                 _updateCmd("Description", val);
             });
@@ -405,6 +451,7 @@ class TagModal extends FuzzySuggestModal<TagChoice> {
     private app: App;
     private cb: any;
     private tags: TagChoice[];
+    private bNoSuggestion: boolean;
 
     constructor(app: App, tags: TagChoice[], cb: any) {
         super(app);
@@ -412,7 +459,18 @@ class TagModal extends FuzzySuggestModal<TagChoice> {
         this.cb = cb;
         this.tags = tags;
         this.limit = 10;
+        this.bNoSuggestion = false;
         this.emptyStateText = "Enter Tag Text";
+        this.setPlaceholder("HERE DA PLACE HOLDER");
+    }
+
+    //    onOpen (): void {
+    //        console.log("onOpen of TagModal");
+    //    }
+
+    onNoSuggestion (): void {
+        console.log("HERE is no suggestion eh?");
+        this.bNoSuggestion = true;
     }
 
     getItems (): TagChoice[] {
@@ -425,6 +483,16 @@ class TagModal extends FuzzySuggestModal<TagChoice> {
 
     // Perform action on the selected suggestion.
     onChooseSuggestion (tag: TagChoice, evt: MouseEvent | KeyboardEvent) {
+        //        console.log("HERE IS INPUT VALUE: " + this.inputEl.value);
+        //        console.log("HERE IS DA TAG", tag);
+
+        if (this.bNoSuggestion) {
+            console.log("GOTS THIS " + this.inputEl.value);
+        } else {
+            console.log("GOT THIS", tag);
+        }
+
+        //        this.inputEl.textContent
         this.cb(tag);
     }
 }

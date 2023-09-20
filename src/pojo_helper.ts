@@ -1539,6 +1539,11 @@ export class PojoHelper {
             for (const val of vala) {
                 vals.push(val.replacement);
             }
+
+            if (vals.length > 1) {
+                vals.sort();
+            }
+
             meta.push({
                 name: param,
                 vals: vals,

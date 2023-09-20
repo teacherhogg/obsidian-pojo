@@ -116,11 +116,11 @@ export default class PojoPlugin extends Plugin {
         });
 
         // POJO Action Dialog
-        this.addRibbonIcon('zap', 'Pojo Convert Journal Entries', () => {
+        this.addRibbonIcon('zap', 'POJO Main Dialog', () => {
             Pojo.pojoZap(this.app, this.statusbar);
         })
 
-        this.addRibbonIcon('database', 'Pojo Create Entry', () => {
+        this.addRibbonIcon('database', 'POJO Create or Edit Entry', () => {
             Pojo.pojoCreate(this.app, this.statusbar);
         })
 

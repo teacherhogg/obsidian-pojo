@@ -564,11 +564,15 @@ export class PojoConvert {
                 } else {
                     const dbinfo = this.pojo.getDatabaseInfo(db)
 
-                    // Add frontmatter from database entries
-                    this.addFrontMatterForDatabase(frontmatter, db, parsedcontent[db], dbinfo);
+                    if (this.settings.databases_no_callouts && this.settings.databases_no_callouts.includes(db)) {
+                        console.log("SKIP creation of callout for database " + db, frontmatter, dailyentry);
+                    } else {
+                        // Add frontmatter from database entries
+                        this.addFrontMatterForDatabase(frontmatter, db, parsedcontent[db], dbinfo);
 
-                    // Add sections for other database information 
-                    this.addMarkdownCalloutSection(sections, diarydate, db, parsedcontent[db], dbinfo);
+                        // Add sections for other database information 
+                        this.addMarkdownCalloutSection(sections, diarydate, db, parsedcontent[db], dbinfo);
+                    }
 
                     // Add LINKS to be added to the bottom of the diary entry
                     //        addFootLinks(footlinks, db, diaryEntry[db], dbinfo);
@@ -1935,6 +1939,10 @@ export class PojoConvert {
                 this.logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
                 break;
             }
+            if (this.settings.databases_no_metadata && this.settings.databases_no_metadata.includes(db)) {
+                console.log("SKIP creation of metadata record for this database " + db);
+                continue;
+            }
             Object.assign(newrecord, item);
             nentry++;
             newrecords.push(newrecord);
@@ -2096,19 +2104,24 @@ export class PojoConvert {
         const dbesummary = {};
         for (const db in dbentry) {
             if (db !== this.defsec) {
-                dbs.push(db);
+                if (this.settings.databases_no_callouts && this.settings.databases_no_callouts.includes(db)) {
+                    console.log("EXCLUDE db summary from metainfo property for " + db);
+                } else {
 
-                const dba = dbentry[db];
-                if (!dbesummary[db]) { dbesummary[db] = []; }
-                for (const me of dba) {
-                    const sume = {};
-                    for (const mekey in me) {
-                        // Save all keys not starting with _ and exclude Description
-                        if (mekey.charAt(0) !== "_" && mekey !== "Description") {
-                            sume[mekey] = me[mekey];
+                    dbs.push(db);
+
+                    const dba = dbentry[db];
+                    if (!dbesummary[db]) { dbesummary[db] = []; }
+                    for (const me of dba) {
+                        const sume = {};
+                        for (const mekey in me) {
+                            // Save all keys not starting with _ and exclude Description
+                            if (mekey.charAt(0) !== "_" && mekey !== "Description") {
+                                sume[mekey] = me[mekey];
+                            }
                         }
+                        dbesummary[db].push(sume);
                     }
-                    dbesummary[db].push(sume);
                 }
             }
         }
@@ -2118,7 +2131,19 @@ export class PojoConvert {
         }
 
         if (tags && tags.length > 0) {
-            frontmatter["tags"] = "[" + tags.join(", ") + "]";
+            const tagsn = tags.filter(el => {
+                if (this.settings.databases_no_callouts) {
+                    const dbt = el.split("/")[0];
+                    if (this.settings.databases_no_callouts.includes(dbt)) {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                } else {
+                    return true;
+                }
+            })
+            frontmatter["tags"] = "[" + tagsn.join(", ") + "]";
         }
 
         frontmatter["metainfo"] = `${JSON.stringify(dbesummary)}`;

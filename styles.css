@@ -51,6 +51,10 @@ body {
     border: 1px solid red !important;
 }
 
+.pojo-set {
+    border: 2px solid rgb(73, 232, 171) !important;
+}
+
 /**
 Snippet color classes.
 ["lightskyblue", "orange", "lime", "pink", "cornsilk", "magenta", "navajowhite"]
