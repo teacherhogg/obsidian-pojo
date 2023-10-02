@@ -19,6 +19,8 @@ export class PojoHelper {
     private app: App;
     private metaunits: object;
     private metatimes: object;
+    private metaprops: string[];
+    private metainfo: object;
     private logs: object;
     private debugging: boolean;
     private errorstack: null;
@@ -37,26 +39,60 @@ export class PojoHelper {
         // DEBUGGING MODE
         this.debugging = false;
 
+    }
+
+    private setupMetaTimes (metameta: object, metahistory: object): void {
+
+        if (!metameta) {
+            console.error("MISSING metameta object!", metameta);
+            return;
+        }
+
         this.metaunits = {};
         this.metatimes = {};
-        if (this.settings.metameta) {
-            for (const field in this.settings.metameta) {
-                const ifield = this.settings.metameta[field];
-                ifield.name = field;
-                if (ifield.units) {
-                    for (const unit of ifield.units) {
-                        if (unit) {
-                            this.metaunits[unit] = ifield;
-                        } else {
-                            this.metaunits["_default-" + ifield.type] = ifield;
-                        }
+        this.metainfo = metameta;
+        this.metaprops = [];
+        for (const field in metameta) {
+            const ifield = metameta[field];
+            this.metaprops.push(field);
+            ifield.name = field;
+            if (ifield.units) {
+                for (const unit of ifield.units) {
+                    if (unit) {
+                        this.metaunits[unit] = ifield;
+                    } else {
+                        this.metaunits["_default-" + ifield.type] = ifield;
                     }
-                } else {
-                    this.metaunits["_default"] = ifield;
                 }
-                this.metatimes[ifield.type] = ifield;
+            } else {
+                this.metaunits["_default"] = ifield;
             }
+
+            if (ifield?.allowed == "history") {
+                if (metahistory && metahistory[ifield.name]) {
+                    ifield.history = metahistory[ifield.name];
+                }
+            }
+
+            if (!this.metatimes[ifield.type]) { this.metatimes[ifield.type] = []; }
+            this.metatimes[ifield.type].push(ifield);
         }
+
+        //        console.log("INFO for meta metaunits", this.metaunits);
+        //        console.log("INFO for meta metatimes", this.metatimes);
+        //        console.log("INFO for meta metaprops", this.metaprops);
+        //        console.log("INFO for meta metainfo", this.metainfo);
+    }
+
+    getMetaMeta (type: string, pname?: string): object | string[] | null {
+        if (type == "units") { return this.metaunits; }
+        else if (type == "times") { return this.metatimes; }
+        else if (type == "props") { return this.metaprops; }
+        else if (type == "name" && this.metainfo[pname]) {
+            return this.metainfo[pname];
+        }
+
+        return null;
     }
 
     getPluginFolder () {
@@ -417,6 +453,13 @@ export class PojoHelper {
 
         this.pojoDatabases = dbkeys;
 
+        // Setup metameta
+        const sobj = await this.getSettings("metameta-SETTINGS.md");
+        if (sobj) {
+            const hobj = await this.getSettings("metameta-HISTORY.md");
+            this.setupMetaTimes(sobj, hobj);
+        }
+
         return true;
     }
 
@@ -434,6 +477,25 @@ export class PojoHelper {
                 return this.pojoDatabases;
             }
         }
+    }
+
+    async getSettings (filename: string): Promise<object> | null {
+        const tpath = generatePath(this.settings.folder_pojo, this.settings.subfolder_settings, filename);
+        const tfile = this.vault.getAbstractFileByPath(tpath) as TFile;
+        if (!tfile) {
+            this.logError("ERROR - settings file is NOT FOUND!", tpath);
+            return null;
+        }
+
+        const fobj = {};
+        const finfo = await this.getMarkdownFileInfo(tfile, "yaml", false);
+
+        if (!finfo || !finfo.frontmatter) {
+            this.logError("ERROR - settings frontmatter cannot be accessed!", tpath, finfo);
+            return null;
+        }
+
+        return finfo.frontmatter;
     }
 
     async getTemplates (): Promise<object> | null {
@@ -492,13 +554,10 @@ export class PojoHelper {
 
     displayMetaMeta (pname, pvalue) {
 
-        this.logDebug("displayMetaMeta:" + pname + ":" + pvalue + ":", this.settings.metameta);
+        this.logDebug("displayMetaMeta:" + pname + ":" + pvalue + ":");
 
-        if (!this.settings.metameta || !this.settings.metameta[pname]) {
-            return pvalue;
-        }
-
-        const fieldi = this.settings.metameta[pname];
+        const fieldi = this.getMetaMeta("name", pname);
+        if (!fieldi) { return null; }
 
         if (fieldi.type == "duration") {
             if (pvalue > 60) {
@@ -549,28 +608,51 @@ export class PojoHelper {
 
     extractMetaMeta (record: object): boolean {
 
-        if (!this.settings.metameta || !record._tags) {
+        if (!record._tags) {
             return false;
         }
 
         this.logDebug("extrctMetaMeta metaunits", this.metaunits);
+        console.log("HERE IS metaunits", this.metaunits);
         this.logDebug("HERE is record to add meta", record);
+        console.log("HERE IS record", record);
 
         for (let tag of record._tags) {
             const leadingnum = tag.replace(/[^0-9]/g, "");
             let num = parseFloat(leadingnum);
-            const unit = tag.replace(/[0-9.:;]/g, '');
+            let unit = tag.replace(/[0-9.:;]/g, '');
             const ca = tag.split(":");
             let type = "duration";
             let fieldi;
+            let textval;
             if (isNaN(num)) {
-                // Assume it is a text field.
-                let tkey = "_default-text";
-                if (ca.length == 2) {
-                    tkey = ca[0];
-                    tag = ca[1];
+                // Assume it is a text field. Check for units matching
+                console.log("ASSUMING this one is a text field!", tag);
+                for (const mrk in this.metaunits) {
+                    const mro = this.metaunits[mrk];
+                    if (mro.type == "text") {
+                        for (const uend of mro.units) {
+                            if (uend && tag.endsWith(uend)) {
+                                // This is the value!
+                                textval = tag.slice(0, tag.lastIndexOf(uend));
+                                unit = uend;
+                                fieldi = mro;
+                            }
+                        }
+                    }
                 }
-                fieldi = this.metaunits[tkey];
+
+                if (!textval) {
+                    // Assume this is default text
+                    let tkey = "_default-text";
+                    if (ca.length == 2) {
+                        tkey = ca[0];
+                        tag = ca[1];
+                    }
+                    unit = "";
+                    fieldi = this.metaunits[tkey];
+                }
+
             } else {
                 if (ca.length == 2) { type = "start-time"; }
                 if (!unit) {
@@ -582,7 +664,7 @@ export class PojoHelper {
                     fieldi = this.metaunits[unit];
                 }
             }
-            //            this.logDebug("here is fieldi for " + tag + " and unit " + unit, fieldi);
+            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
 
             if (!fieldi) {
                 this.logError("ERROR getting fieldi for tag " + tag);
@@ -592,7 +674,7 @@ export class PojoHelper {
             type = fieldi.type;
 
             if (type == "text") {
-                record[fieldi.name] = tag;
+                record[fieldi.name] = textval;
             } else {
                 if (fieldi.type == "duration") {
                     if (unit == "h" || unit == "hr") {
@@ -607,9 +689,9 @@ export class PojoHelper {
         }
 
         // Add time related info if it can be calculated.
-        const starttimekey = this.metatimes["start-time"] ? this.metatimes["start-time"].name : "_NOTSET_";
-        const endtimekey = this.metatimes["end-time"] ? this.metatimes["end-time"].name : "_NOTSET_";
-        const durationkey = this.metatimes["duration"] ? this.metatimes["duration"].name : "_NOTSET_";
+        const starttimekey = this.metatimes["start-time"] ? this.metatimes["start-time"][0].name : "_NOTSET_";
+        const endtimekey = this.metatimes["end-time"] ? this.metatimes["end-time"][0].name : "_NOTSET_";
+        const durationkey = this.metatimes["duration"] ? this.metatimes["duration"][0].name : "_NOTSET_";
         if (record[starttimekey]) {
             if (record[endtimekey]) {
                 // Calculate duration based on start and ends.
@@ -632,6 +714,7 @@ export class PojoHelper {
         }
 
         this.logDebug("ADDED meta", record);
+        console.log("Added META", record);
 
         return true;
     }
@@ -716,6 +799,11 @@ export class PojoHelper {
         }
 
         const dbinfo = this.loadedPojoDB[dbname];
+        //        if (!dbinfo) {
+        //            const capname = dbname.charAt(0).toUpperCase() + dbname.slice(1);
+        //            dbinfo = this.loadedPojoDB[capname];
+        //        }
+
         if (!dbinfo) {
             if (!bQuiet) {
                 console.error("ERROR dbname of :" + dbname + ":", this.loadedPojoDB);
@@ -1378,12 +1466,11 @@ export class PojoHelper {
         robj._params = [...dbinfo.params];
 
         // Add the possible @tags types
-        if (this.settings.metameta) {
-            for (const mtag in this.settings.metameta) {
-                //                const tagi = this.metameta[mtag];
-                robj._params.push(mtag);
-            }
+        const metaprops = this.getMetaMeta("props");
+        for (const mtag of metaprops) {
+            robj._params.push(mtag);
         }
+
         robj._typeparam = dbinfo.type;
 
         const finfo = dbinfo["field-info"];
@@ -1572,8 +1659,8 @@ export class PojoHelper {
             //            console.log("HERE is vala", pobj, vala);
             for (const vol of vala) {
                 tags.push({
-                    db: db,
-                    type: vol.replacement,
+                    _database: db,
+                    _type: vol.replacement,
                     name: db + "/" + vol.replacement
                 })
             }

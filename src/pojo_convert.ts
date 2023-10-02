@@ -822,15 +822,17 @@ export class PojoConvert {
             return taggedfiles;
         }
 
+        const metaprops = this.pojo.getMetaMeta("props");
+
         for (const tag in taggedfiles) {
             if (taggedfiles[tag].length > 1) {
                 for (const file of taggedfiles[tag]) {
                     const finfo = await this.pojo.getMarkdownFileInfo(file, "yaml", false);
                     const fm = finfo?.frontmatter;
                     if (fm && fm.metainfo) {
-                        //                        console.warn("GOTS metainfo for tag " + tag);
+                        //                        console.warn("GOTS metainfo for tag " + tag, fm);
                         const ta = tag.slice(1).split("/");
-                        const dbname = ta[0];
+                        const dbname = ta[0].charAt(0).toUpperCase() + ta[0].slice(1);
                         const dbinfo = this.pojo.getDatabaseInfo(dbname);
                         if (!dbinfo) {
                             console.error("MISSING database info for database " + dbname);
@@ -856,7 +858,7 @@ export class PojoConvert {
 
                                 for (const ekey in tentry) {
                                     // Exclude any meta metadata
-                                    if (!this.settings.metameta[ekey] && ekey !== typename) {
+                                    if (!metaprops.includes[ekey] && ekey !== typename) {
                                         const val = tentry[ekey];
                                         //                                        console.log(` ekey=${ekey} val=${val}`);
 
@@ -1906,10 +1908,11 @@ export class PojoConvert {
                             if (!newval.mocparams) { newval.mocparams = []; }
                             newval.mocparams = _addValue(mocname, newval.mocparams);
                         } else {
-                            if (!newval.params) { newval.params = []; }
-
                             const addval = this.pojo.displayMetaMeta(param, paramval);
-                            newval.params = _addValue(addval, newval.params);
+                            if (addval) {
+                                if (!newval.params) { newval.params = []; }
+                                newval.params = _addValue(addval, newval.params);
+                            }
                         }
                     } else {
                         if (!newval) { newval = {}; }
