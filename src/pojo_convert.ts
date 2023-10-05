@@ -223,6 +223,14 @@ export class PojoConvert {
             //            console.log("returned from _initMocFile " + mocFileName, mocFileInfo);
 
             let moc;
+            const viewarg = {
+                db: dbname,
+                fkey: filterkey,
+                fvalue: filtervalue,
+                sfkey: subfilterkey,
+                sfvalue: subfiltervalue
+            };
+            const viewargs = JSON.stringify(viewarg);
             if (!mocFileInfo) {
                 // This MOC has not been created so far this time.
                 const fm = _getMOCfrontmatter(moctype, filterkey, filtervalue, subfilterkey, subfiltervalue);
@@ -231,10 +239,19 @@ export class PojoConvert {
                 moc += stringifyYaml(fm);
                 moc += "---\n";
 
-                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
-                let newmoc = head.join("\n");
-                newmoc += "\n" + templates[moctype].contentstart;
-                newmoc += "\nlet tabledata = fm.tables[0]";
+
+                // Add the multistart content first.
+                moc += "\n" + templates['MOC-multistart'].contentstart;
+                moc += "\n" + templates['MOC-multistart'].contentend;
+                //                moc += "\n# SUPER DUDE";
+
+                //                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
+                //                let newmoc = head.join("\n");
+                //              newmoc += "\n## DUDE IS THIS EH?";
+
+                let newmoc = templates[moctype].contentstart;
+                //                newmoc += `\nawait dv.view('POJO/views/banner', ${viewargs});`;
+                newmoc += "\nlet tb = fm.tables[0];";
                 newmoc += "\n" + templates[moctype].contentend;
 
                 moc += newmoc;
@@ -242,19 +259,23 @@ export class PojoConvert {
                 info.mocCount++;
             } else {
                 // MOC exists so we will ADD to it.
-                //                console.log("EXISTING MOC found for " + mocname, mocFileInfo);
+                console.log("EXISTING MOC found for " + mocname, mocFileInfo);
                 _addMOCtablesFM(mocFileInfo.frontmatter, moctype, filterkey, filtervalue, subfilterkey, subfiltervalue);
 
                 moc = "---\n"
                 moc += stringifyYaml(mocFileInfo.frontmatter);
                 moc += "---\n";
 
-                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
-                let newmoc = mocFileInfo.content + "\n" + head.join("\n");
+                //                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
+                //                let newmoc = mocFileInfo.content + "\n" + head.join("\n");
+                let newmoc = mocFileInfo.bodycontent;
+
+                //                newmoc += "\n## MORE DUDE STUFF...";
 
                 const tindex = info.mocNames[mocFileName] - 1;
                 newmoc += "\n" + templates[moctype].contentstart;
-                newmoc += `\nlet tabledata = fm.tables[${tindex}]`;
+                //                newmoc += `\nawait dv.view('POJO/views/banner', ${viewargs});`;
+                newmoc += `\nlet tb = fm.tables[${tindex}];`;
                 newmoc += "\n" + templates[moctype].contentend;
 
                 moc += newmoc;
@@ -832,6 +853,10 @@ export class PojoConvert {
                     if (fm && fm.metainfo) {
                         //                        console.warn("GOTS metainfo for tag " + tag, fm);
                         const ta = tag.slice(1).split("/");
+                        if (ta.length == 1) {
+                            // SKIP this as not a database/type definition tag
+                            continue;
+                        }
                         const dbname = ta[0].charAt(0).toUpperCase() + ta[0].slice(1);
                         const dbinfo = this.pojo.getDatabaseInfo(dbname);
                         if (!dbinfo) {
@@ -841,6 +866,10 @@ export class PojoConvert {
                         const typename = dbinfo.type;
 
                         const entries = fm.metainfo[dbname];
+                        if (!entries) {
+                            console.warn("NO SUCH entry in frontmatter for dbname " + dbname, fm);
+                            continue;
+                        }
                         for (const tentry of entries) {
                             //                            console.log(tentry)
                             if (tentry[typename] == ta[1]) {

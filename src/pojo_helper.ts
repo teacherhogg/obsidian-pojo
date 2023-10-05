@@ -516,6 +516,9 @@ export class PojoHelper {
                 if (finfo && finfo.frontmatter && finfo.frontmatter.Category) {
                     this.logDebug("FMINFO ", finfo);
                     const catname = finfo.frontmatter.Category;
+                    if (templates[catname]) {
+                        console.warn("WARNING: Multiple templates defined with SAME category", catname);
+                    }
                     templates[catname] = finfo.frontmatter;
 
                     if (finfo.frontmatter.Type == "MOC-Template") {
@@ -549,6 +552,7 @@ export class PojoHelper {
             return null;
         }
 
+        console.warn("HERE DA TEMPLATES EH", templates);
         return templates;
     }
 
