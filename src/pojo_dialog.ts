@@ -178,6 +178,10 @@ export class PojoZap extends Modal {
                         //                        console.log("DA DONE");
                         const retobj = await convert.createMOCFiles(false);
                         console.log("DONE MOC FER NOW", retobj, true);
+                        const message = "Finished with the creation of " + retobj.mocCount + " Maps of Content (MOC).";
+                        new InformationModal(
+                            self.app, "MOC Creation Completed", message
+                        ).open();
                     })
             )
         /*
@@ -466,6 +470,11 @@ export class PojoConfirm extends Modal {
         }
 
         new Setting(contentEl)
+            .addButton(button =>
+                button
+                    .setButtonText("Cancel")
+                    .onClick(() => self.close())
+            )
             .addButton((btn) =>
                 btn
                     .setButtonText("Save Changes")
@@ -475,7 +484,7 @@ export class PojoConfirm extends Modal {
                         self.saveChanges(self.changes);
                         self.close();
                     })
-            )
+            );
     }
 
     onClose () {

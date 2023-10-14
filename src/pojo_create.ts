@@ -1,5 +1,6 @@
 import { App, Modal, FuzzySuggestModal, Setting, TFile, DropdownComponent, MarkdownView, prepareSimpleSearch } from "obsidian";
 import { PojoSettings } from './settings';
+import { PojoConfirm } from './pojo_dialog';
 import { Searcher } from "fast-fuzzy";
 
 export class PojoCreate extends Modal {
@@ -79,6 +80,34 @@ export class PojoCreate extends Modal {
             console.log("HERE is thre result", result);
             console.warn("NEED TO UPDATE THESE VALS", updateVals);
 
+            if (updateVals && Object.keys(updateVals).length > 0) {
+                const newUpdates = [];
+                for (const name in updateVals) {
+                    const narr = updateVals[name];
+                    for (const nobj of narr) {
+                        if (nobj.type == "param") {
+                            newUpdates.push({
+                                database: nobj.database,
+                                key: nobj.key,
+                                value: nobj.value
+                            });
+                        } else {
+                            console.warn("NOT sure what to do with this for updating", nobj);
+                        }
+                    }
+                }
+                if (newUpdates.length > 0) {
+                    // Need to UPDATE this 
+                    console.log("NEED to update this val", newUpdates);
+
+                    const saveHistoryChanges = async function (historyC) {
+                        return await self.pojo.saveHistoryChanges(self.app.vault, historyC);
+                    }
+
+                    new PojoConfirm(self.app, newUpdates, saveHistoryChanges).open();
+                }
+            }
+
             view.editor.setLine(currLineNum, result);
         }
 
@@ -117,8 +146,9 @@ export class PojoCreate extends Modal {
 
         const contentEl = this.contentEl;
         const dbname = sitem._database;
+        const dbinfo = self.pojo.getDatabaseInfo(dbname);
         const meta = self.pojo.getTagMetadata(dbname, sitem._type);
-        console.log('HERE IS meta ', meta);
+        console.log('HERE IS meta ', meta, dbinfo);
 
         const base = `#${dbname}/${sitem._type}`;
 
@@ -130,7 +160,7 @@ export class PojoCreate extends Modal {
         let bigtextfield;
         let finalcommand;
         const _updateCmd = function (fname: string, cmd: string, paramnum: number) {
-            console.log(`_updateCmd called :${fname}: :${cmd}: :${paramnum}:`);
+            //            console.log(`_updateCmd called :${fname}: :${cmd}: :${paramnum}:`);
             if (paramnum) {
                 for (let n = 1; n < paramnum; n++) {
                     const key = `p${n}`;
@@ -143,7 +173,7 @@ export class PojoCreate extends Modal {
                 metaobj[fname] = cmd;
             }
 
-            console.log("HERE IS metaobj", metaobj);
+            //            console.log("HERE IS metaobj", metaobj);
 
             let meta = "";
             let params = "";
@@ -176,11 +206,27 @@ export class PojoCreate extends Modal {
                 }
             });
             if (!elUpdated) {
-                updateVals[name].push({
-                    name: name,
-                    type: type,
-                    value: value
-                });
+                if (type == "param") {
+                    let key = `${name}`;
+                    if (dbinfo["field-info"][name]) {
+                        if (dbinfo["field-info"][name].allowed == "history-type") {
+                            key = `${sitem._type}_${name}`;
+                        }
+                    }
+                    updateVals[name].push({
+                        name: name,
+                        type: type,
+                        database: sitem._database,
+                        key: key,
+                        value: value
+                    })
+                } else {
+                    updateVals[name].push({
+                        name: name,
+                        type: type,
+                        value: value
+                    });
+                }
             }
         }
         // Add all the params

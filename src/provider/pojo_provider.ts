@@ -94,6 +94,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
                 const changes = this.pojo.getHistoryChanges(pobjprev);
                 if (changes) {
 
+                    console.log("HERE is some chagnes", changes);
                     this.pojo.logDebug("GOTS SOME CHNAGES!!", changes);
 
                     const saveHistoryChanges = async function (historyC) {

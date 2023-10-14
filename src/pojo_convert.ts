@@ -53,6 +53,9 @@ export class PojoConvert {
             return null;
         }
 
+        const nowDate = new Date();
+        const convertDate = nowDate.toDateString() + " " + nowDate.toLocaleTimeString();
+
         // Get the tag summaries
         const tagSummary = await this.getTaggedFiles(this.settings.folder_daily_notes, true);
 
@@ -60,6 +63,7 @@ export class PojoConvert {
             mocCount: 0,
             mocCollisions: [],
             mocNames: {},
+            convertDate: convertDate,
             bCreateOnly: bCreateOnly
         }
         const dbs = this.pojo.getDatabases(true);
@@ -102,6 +106,15 @@ export class PojoConvert {
                 }
             } else {
                 info.mocNames[mocFileName] = 1;
+
+                if (!info.bCreateOnly) {
+                    // Delete any existing MOC 
+                    const mocFile = generatePath(self.settings.folder_moc, mocFileName);
+                    const mocFileRef = self.vault.getAbstractFileByPath(mocFile) as TFile;
+                    //                    if (await self.vault.adapter.exists(mocFileRef)) {
+                    await self.vault.delete(mocFileRef);
+                    //                    }
+                }
             }
 
             //            console.log("HERE Is returned for " + mocFileName, mocFileInfo);
@@ -145,6 +158,7 @@ export class PojoConvert {
             }
             fm.push(`metadata: ${metadatafolder}`);
             fm.push(`Category: ${moctype}`);
+            fm.push(`Last Converted: ${info.convertDate}`);
             if (moctype == 'MOC-database') {
                 fm.push(`viewparams: [${vpval}]`);
                 fm.push(`database: ${dbname}`);
@@ -282,7 +296,7 @@ export class PojoConvert {
             }
 
             //            console.log("Creating MOC file " + mocFileName);
-            await self.pojo.createVaultFile(moc, self.settings.folder_moc, mocFileName, !info.bCreateOnly);
+            await self.pojo.createVaultFile(moc, self.settings.folder_moc, mocFileName, true);
             //            console.log("Finished creating MOC file...");
         }
 
