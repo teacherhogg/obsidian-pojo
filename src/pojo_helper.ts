@@ -617,7 +617,7 @@ export class PojoHelper {
         }
 
         this.logDebug("extrctMetaMeta metaunits", this.metaunits);
-        console.log("HERE IS metaunits", this.metaunits);
+        //        console.log("HERE IS metaunits", this.metaunits);
         this.logDebug("HERE is record to add meta", record);
         console.log("HERE IS record", record);
 
@@ -668,7 +668,7 @@ export class PojoHelper {
                     fieldi = this.metaunits[unit];
                 }
             }
-            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
+            //          console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
 
             if (!fieldi) {
                 this.logError("ERROR getting fieldi for tag " + tag);
@@ -1413,7 +1413,7 @@ export class PojoHelper {
         tagline = tagline.trimEnd();
 
         this.logDebug("HERE DA LINE", tagline);
-        //        console.log("HERA DA LINE", tagline);
+        console.log("HERA DA LINE", tagline);
 
         // Pojo Tags (or H3) do not have spaces in the reference except for Daily Entry
         if (this.settings.daily_entry_h3.includes(tagline)) {
@@ -1447,10 +1447,12 @@ export class PojoHelper {
 
         plen = params.length;
         this.logDebug("FILTERED PARAMS " + plen, params);
+        console.log("FILTERED PARAMS " + plen, params);
 
         if (tags) {
             robj._tags = tags;
             this.logDebug("Stripped out tags! ", tags);
+            console.log("Stripped out tags! ", tags);
             this.logDebug("Last param is tag: " + bLastParamTag + " trailing space: " + bTrailingSpace);
         }
 
@@ -1497,6 +1499,7 @@ export class PojoHelper {
 
                 const roline = params.join(" ");
                 this.logDebug("roline is " + roline);
+                console.log("roline is " + roline);
                 const aparams = this.splitParams(roline);
 
                 if (aparams) {
@@ -1591,11 +1594,13 @@ export class PojoHelper {
         //
         //      })
 
-        //        this.logDebug("HERE IS ROBJ", robj);
-        //        console.log("HERE DA ROBJ", robj);
+        console.log("HERE IS robj.Description", robj.Description);
 
         // Check parsed info for any tags and process according to the metameta settings!
         this.extractMetaMeta(robj);
+
+        //        this.logDebug("HERE IS ROBJ", robj);
+        console.log("HERE DA ROBJ", robj);
 
         return robj;
     }

@@ -97,40 +97,51 @@ export class PojoZap extends Modal {
                 btn
                     .setButtonText("Convert Current Note")
                     .onClick(async () => {
-                        console.log('DOING THIS FILE CONVERT!!!');
-                        const imageactions = [];
+                        console.log('DOING THIS FILE CONVERT!!!', this.currentFile);
 
-                        //                        console.log("TEMP FIXUP HISTORY FILE CASES")
-                        //                        const newhistory = modifyDatabaseHistory(this.history);
-                        //                        console.log("HERE is the newhistory", newhistory);
-                        //                        this.pojo.saveHistory(this.app.vault, newhistory);
-
-                        const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
-
-                        const dailyFiles = [this.currentFile];
-                        let retobj = await self.convertDailyNotes(convert, dailyFiles, false, false);
-                        console.log("convertDailyNotes Completed.", retobj);
-
-                        if (retobj.status == "noconvert_alreadyconverted") {
-                            new ConfirmationModal(
-                                this.app,
-                                "Conversion Already Done",
-                                "This note has ALREADY been converted. Do you wish to proceed anyway and overrwite any previous converted note and metadata?",
-                                button => button
-                                    .setButtonText("Proceed with Conversion ANYWAY")
-                                    .setWarning(),
-                                async () => {
-
-                                    console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ");
-                                    retobj = await self.convertDailyNotes(convert, dailyFiles, false, true)
-                                    console.log("Second Conversion Completed.", retobj);
-                                    self.dailyNoteCompletion(retobj, self.pojo, false);
-
-                                }).open();
-                        } else {
-                            self.dailyNoteCompletion(retobj, self.pojo, false);
+                        let dailyNote = true;
+                        if (this.currentFile?.parent?.name !== self.settings.folder_daily_notes) {
+                            dailyNote = false;
                         }
+                        if (!dailyNote) {
+                            const message = "Only files in the " + self.settings.folder_daily_notes + " folder can be converted (You can reconvert a note from there as well).";
+                            new InformationModal(
+                                self.app, "Cannot Convert Note", message
+                            ).open();
+                        } else {
+                            const imageactions = [];
 
+                            //                        console.log("TEMP FIXUP HISTORY FILE CASES")
+                            //                        const newhistory = modifyDatabaseHistory(this.history);
+                            //                        console.log("HERE is the newhistory", newhistory);
+                            //                        this.pojo.saveHistory(this.app.vault, newhistory);
+
+                            const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
+
+                            const dailyFiles = [this.currentFile];
+                            let retobj = await self.convertDailyNotes(convert, dailyFiles, false, false);
+                            console.log("convertDailyNotes Completed.", retobj);
+
+                            if (retobj.status == "noconvert_alreadyconverted") {
+                                new ConfirmationModal(
+                                    this.app,
+                                    "Conversion Already Done",
+                                    "This note has ALREADY been converted. Do you wish to proceed anyway and overrwite any previous converted note and metadata?",
+                                    button => button
+                                        .setButtonText("Proceed with Conversion ANYWAY")
+                                        .setWarning(),
+                                    async () => {
+
+                                        console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ");
+                                        retobj = await self.convertDailyNotes(convert, dailyFiles, false, true)
+                                        console.log("Second Conversion Completed.", retobj);
+                                        self.dailyNoteCompletion(retobj, self.pojo, false);
+
+                                    }).open();
+                            } else {
+                                self.dailyNoteCompletion(retobj, self.pojo, false);
+                            }
+                        }
                     })
             )
             .addButton((btn) =>
@@ -153,6 +164,17 @@ export class PojoZap extends Modal {
                                 const retobj = await convert.createDailyNote(datestr, tasks);
                                 console.log("Daily Note created with retobj", retobj);
                             }).open();
+                    })
+            )
+
+        new Setting(contentEl)
+            .addButton((btn) =>
+                btn
+                    .setButtonText("Excalidraw Testing")
+                    .onClick(async () => {
+                        console.log('Testing Excalidraw API', self.pojo);
+                        const retobj = await self.excaliDrawTest();
+                        console.log('Finished da test', retobj);
                     })
             )
 
@@ -254,6 +276,11 @@ export class PojoZap extends Modal {
             retobj,
             logfilename
         ).open();
+    }
+
+    async excaliDrawTest () {
+        console.log("excaliDrawTest");
+        return null;
     }
 
     async convertDailyNotes (convert, dailyFiles, bConvertAllNotes, bConvertAgain) {

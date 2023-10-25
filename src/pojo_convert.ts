@@ -43,6 +43,33 @@ export class PojoConvert {
         }
     }
 
+    async createMasterMOC (mocTree) {
+        console.log("CREATE MASTER MOC AT " + this.settings.folder_master_moc);
+        const mm = [];
+        for (const dbname in mocTree) {
+            const dbi = mocTree[dbname];
+            mm.push(`## [[${dbi.fileref}]]`);
+            mm.push("");
+            if (Object.keys(dbi.children).length > 0) {
+                for (const dbtype in dbi.children) {
+                    const dbi2 = dbi.children[dbtype];
+                    mm.push(`   * ### [[${dbi2.fileref}]]`);
+                    if (Object.keys(dbi2.children).length > 0) {
+                        for (const dbtval in dbi2.children) {
+                            mm.push(`      * [[${dbi2.children[dbtval]}]]`);
+                        }
+                        mm.push("");
+                    }
+                }
+                mm.push("");
+            }
+        }
+
+        console.log("Master MOC puppy", mm);
+
+        await this.pojo.createVaultFile(mm.join("\n"), this.settings.folder_master_moc, this.settings.file_master_moc + ".md", true);
+    }
+
     async createMOCFiles (bCreateOnly: boolean): Promise<object> | null {
 
         // Load the MOC templates.
@@ -58,11 +85,13 @@ export class PojoConvert {
 
         // Get the tag summaries
         const tagSummary = await this.getTaggedFiles(this.settings.folder_daily_notes, true);
+        console.log("HERE are the tagSummary", tagSummary);
 
         const info = {
             mocCount: 0,
             mocCollisions: [],
             mocNames: {},
+            mocTree: {},
             convertDate: convertDate,
             bCreateOnly: bCreateOnly
         }
@@ -72,6 +101,9 @@ export class PojoConvert {
         for (const db in dbs.databases) {
             const mret = await this.createMOCFile(db, dbs.databases[db], templates, tagSummary, info);
         }
+
+        // Create Master MOC
+        await this.createMasterMOC(info.mocTree);
 
         return info;
     }
@@ -93,6 +125,7 @@ export class PojoConvert {
 
             if (info.mocNames[mocFileName]) {
                 // Collision! This means the same mocname has been used before.
+                console.warn("THIS moc file has been used before! " + mocFileName);
                 info.mocNames[mocFileName]++;
                 info.mocCollisions.push(mocFileName);
                 const mocFile = generatePath(self.settings.folder_moc, mocFileName);
@@ -231,9 +264,13 @@ export class PojoConvert {
 
         const _createMOC = async function (mocname: string, moctype: string, filterkey?: string, filtervalue?: string, subfilterkey?: string, subfiltervalue?: string) {
 
-            //            console.log(`_createMoc ${mocname} type ${moctype} [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
+            let mocnameFile = mocname;
+            if (!subfiltervalue && moctype == "MOC-multi") {
+                mocnameFile = `${dbname}_${mocname}`;
+            }
+            console.log(`_createMoc ${mocnameFile} type ${moctype} [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
 
-            const { mocFileName, mocFileInfo } = await _initMOCFile(mocname);
+            const { mocFileName, mocFileInfo } = await _initMOCFile(mocnameFile);
             //            console.log("returned from _initMocFile " + mocFileName, mocFileInfo);
 
             let moc;
@@ -265,7 +302,7 @@ export class PojoConvert {
 
                 let newmoc = templates[moctype].contentstart;
                 //                newmoc += `\nawait dv.view('POJO/views/banner', ${viewargs});`;
-                newmoc += "\nlet tb = fm.tables[0];";
+                newmoc += "\ntb = fm.tables[0];";
                 newmoc += "\n" + templates[moctype].contentend;
 
                 moc += newmoc;
@@ -273,7 +310,7 @@ export class PojoConvert {
                 info.mocCount++;
             } else {
                 // MOC exists so we will ADD to it.
-                console.log("EXISTING MOC found for " + mocname, mocFileInfo);
+                console.error("EXISTING MOC found for " + mocname, mocFileInfo);
                 _addMOCtablesFM(mocFileInfo.frontmatter, moctype, filterkey, filtervalue, subfilterkey, subfiltervalue);
 
                 moc = "---\n"
@@ -282,20 +319,43 @@ export class PojoConvert {
 
                 //                const head = _createMOCTableHeader(dbname, filterkey, filtervalue, subfilterkey, subfiltervalue);
                 //                let newmoc = mocFileInfo.content + "\n" + head.join("\n");
-                let newmoc = mocFileInfo.bodycontent;
+                const newmocA = mocFileInfo.bodycontent.split("\n");
 
-                //                newmoc += "\n## MORE DUDE STUFF...";
+                let lastline = newmocA.pop();
+                while (lastline !== "```") {
+                    lastline = newmocA.pop();
+                }
+                console.log("HERE IS THE lastline element:" + lastline, newmocA);
 
                 const tindex = info.mocNames[mocFileName] - 1;
-                newmoc += "\n" + templates[moctype].contentstart;
+                //                newmoc += "\n" + templates[moctype].contentstart;
                 //                newmoc += `\nawait dv.view('POJO/views/banner', ${viewargs});`;
-                newmoc += `\nlet tb = fm.tables[${tindex}];`;
-                newmoc += "\n" + templates[moctype].contentend;
 
-                moc += newmoc;
+                newmocA.push(`tb = fm.tables[${tindex}];`);
+                newmocA.push(" ");
+
+                moc += newmocA.join("\n") + templates[moctype].contentend;
             }
 
-            //            console.log("Creating MOC file " + mocFileName);
+            console.log("Creating MOC file " + mocFileName, filtervalue, subfiltervalue);
+            //            console.log("HERE IT IS", moc);
+            const fnameBase = mocFileName.split(".")[0];
+            if (!info.mocTree[dbname] && moctype == "MOC-database") {
+                info.mocTree[dbname] = {
+                    fileref: fnameBase,
+                    children: {}
+                }
+            } else if (!subfiltervalue) {
+                if (!info.mocTree[dbname].children[filtervalue]) {
+                    info.mocTree[dbname].children[filtervalue] = {
+                        fileref: fnameBase,
+                        children: {}
+                    }
+                }
+            } else {
+                info.mocTree[dbname].children[filtervalue].children[subfiltervalue] = fnameBase;
+            }
+
             await self.pojo.createVaultFile(moc, self.settings.folder_moc, mocFileName, true);
             //            console.log("Finished creating MOC file...");
         }
@@ -858,6 +918,7 @@ export class PojoConvert {
         }
 
         const metaprops = this.pojo.getMetaMeta("props");
+        console.log("HERE is metaprops", metaprops);
 
         for (const tag in taggedfiles) {
             if (taggedfiles[tag].length > 1) {
@@ -885,7 +946,6 @@ export class PojoConvert {
                             continue;
                         }
                         for (const tentry of entries) {
-                            //                            console.log(tentry)
                             if (tentry[typename] == ta[1]) {
                                 //                                console.log("TYPE NAME " + tentry[typename], tentry);
                                 const typeval = tentry[typename];
@@ -901,9 +961,12 @@ export class PojoConvert {
 
                                 for (const ekey in tentry) {
                                     // Exclude any meta metadata
-                                    if (!metaprops.includes[ekey] && ekey !== typename) {
+                                    const bMeta = metaprops.includes(ekey);
+                                    //                                    console.log(`NOT that ${ekey} is ${bMeta}`, metaprops);
+
+                                    if (!bMeta && ekey !== typename) {
                                         const val = tentry[ekey];
-                                        //                                        console.log(` ekey=${ekey} val=${val}`);
+                                        //                                        console.log(` ADDING for ${dbname}: ekey=${ekey} val=${val}`);
 
                                         if (Array.isArray(val)) {
                                             for (const vale of val) {
@@ -995,11 +1058,22 @@ export class PojoConvert {
         const filecache = fileinfo.filecache;
 
         const sections = {};
-        const _addSection = function (sec: string, sline: number) {
+        const _addSection = function (sec: string, pos: object, sline: number) {
             if (sec) {
                 sec = self.pojo.normalizeReference(sec);
             }
-            sections[sline + ""] = sec;
+            if (pos) {
+                sline = pos.start.line;
+                sections[sline + ""] = {
+                    section: sec,
+                    column: pos.start.col
+                }
+            } else {
+                sections[sline + ""] = {
+                    section: sec,
+                    column: 0
+                }
+            }
         }
 
         const info = {};
@@ -1008,7 +1082,7 @@ export class PojoConvert {
         if (filecache?.frontmatterPosition?.end.line) {
             startline = filecache.frontmatterPosition.end.line + 1;
         }
-        _addSection(this.defsec, startline);
+        _addSection(this.defsec, null, startline);
 
 
         const _checkMatch = function (tval: string): string | null {
@@ -1047,7 +1121,7 @@ export class PojoConvert {
                 if (head.level == 3) {
                     const sect = _checkMatch(head.heading.trim());
                     if (sect) {
-                        _addSection(sect, head.position.start.line)
+                        _addSection(sect, head.position)
                         if (head.heading == self.defsec) {
                             skiplines[head.position.start.line + ""] = head.heading;
                         }
@@ -1085,7 +1159,7 @@ export class PojoConvert {
         if (filecache.tags) {
             for (const tago of filecache.tags) {
                 const sect = _checkMatch(tago.tag.trim().slice(1));
-                if (sect) { _addSection(sect, tago.position.start.line) }
+                if (sect) { _addSection(sect, tago.position) }
             }
 
         }
@@ -1102,25 +1176,24 @@ export class PojoConvert {
             return line;
         }
 
-        // NOW go through file adding to appropriate sections!
+        const _breakString = (str, pos) => {
+            return [str.slice(0, pos), str.slice(pos)];
+        }
+
         const doc = {};
         let currsect = this.defsec;
-        for (let lnum = startline; lnum < fcontent.length; lnum++) {
-            const sect = sections[lnum + ""];
-            const line = fcontent[lnum];
-            //            console.log("Parse Line and sect " + sect, line);
-            if (sect) {
-                const db = sect.split("/")[0];
+        const _addPart = function (lnum: number, line: string, section: string) {
+            if (section) {
+                const db = section.split("/")[0];
                 if (!doc[db]) { doc[db] = []; }
                 currsect = db;
                 // Parse this line! Remove leading # and whitespace
                 const pline = _removeHash(line);
-                //                console.log("INPUT:" + line + ": OUTPUT:" + pline + ":");
+                console.log("INPUT:" + line + ": OUTPUT:" + pline + ":", db);
 
-                let bDebug = false;
-                if (db == "Tasks") {
+                let bDebug = true;
+                if (db == "Short") {
                     bDebug = true;
-
                 }
 
                 let pobj = null;
@@ -1142,37 +1215,63 @@ export class PojoConvert {
                             _database: db,
                             Description: []
                         }
-                        if (db == this.defsec) {
+                        if (db == self.defsec) {
                             newsect._Title = info.title;
                             newsect.Date = info.Date;
                         }
                         doc[db].push(newsect);
-                        //                        console.log("HERE be2 for " + db + " line>>" + line + "<<", doc[db]);
+                        console.log("HERE be2 for " + db + " line>>" + line + "<<", doc[db]);
                         if (line && !skiplines[lnum + ""]) {
                             doc[db][0].Description.push(line);
                         }
                     } else {
-                        //                        console.log("HERE be for " + db + " line>>" + line + "<<", doc[db]);
+                        console.log("HERE be for " + db + " line>>" + line + "<<", doc[db]);
                         if (!skiplines[lnum + ""] && line) {
                             doc[db][0].Description.push(line);
                         } else {
-                            console.log("SKIP THIS LINE " + sect + " -> " + lnum, line);
+                            console.log("SKIP THIS LINE " + section + " -> " + lnum, line);
                         }
                     }
                 } else {
-                    //                    console.log(`LINE ${lnum} and db ${db}`, doc[db]);
+                    console.log(`LINE ${lnum} and db ${db}`, doc[db]);
                     doc[db].push(pobj);
                 }
             } else {
-                //                console.log("HERE is doc and currsect " + currsect, doc);
+                console.log("HERE is doc and currsect " + currsect + " line: " + line);
                 const snum = doc[currsect].length;
                 const cobj = doc[currsect][snum - 1];
-                //                console.log("HERE is the current obj " + currsect + " num " + snum);
+                console.log("HERE is the current obj " + currsect + " num " + snum);
                 //                console.log("HERE is doc", doc);
                 if (!skiplines[lnum + ""] && line) {
                     if (!cobj.Description) { cobj.Description = []; }
                     cobj.Description.push(line);
                 }
+            }
+        }
+
+        // NOW go through file adding to appropriate sections!
+        for (let lnum = startline; lnum < fcontent.length; lnum++) {
+            const sect = sections[lnum + ""];
+            let section = null;
+            let part1, part2 = null;
+            if (sect) {
+                section = sect.section;
+                const line = fcontent[lnum];
+                if (sect.column) {
+                    // Not starting in the first column
+                    [part1, part2] = _breakString(line, sect.column);
+                } else {
+                    part2 = line;
+                }
+            } else {
+                part1 = fcontent[lnum];
+            }
+            console.log("Parse Line 1:[" + part1 + "] 2:[" + part2 + "]", sect);
+            if (part1) {
+                _addPart(lnum, part1, null);
+            }
+            if (part2) {
+                _addPart(lnum, part2, section)
             }
         }
 
