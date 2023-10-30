@@ -75,7 +75,7 @@ export class PojoConvert {
         // Load the MOC templates.
         const templates = await this.pojo.getTemplates();
         if (!templates) {
-            this.logError("ERROR on getting templates!");
+            this.pojo.logError("ERROR on getting templates!");
             console.error("Error reading Templates");
             return null;
         }
@@ -498,7 +498,7 @@ export class PojoConvert {
             fileinfo = await this.pojo.getMarkdownFileInfo(contentFile, "filecache", false);
 
         } catch (err) {
-            this.logError("ERROR on reading file info!", err);
+            this.pojo.logError("ERROR on reading file info!", err);
             console.error("input file", inputFile);
             console.error("ERROR reading content of file " + fname, contentFile);
             return {
@@ -582,14 +582,14 @@ export class PojoConvert {
             }
 
         } catch (err) {
-            this.logError("ERROR on importing and parsing markdown!", err);
+            this.pojo.logError("ERROR on importing and parsing markdown!", err);
             return {
                 "type": "error_parsing",
                 "msg": "Error Encountered: " + err.message
             }
         }
 
-        this.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
+        this.pojo.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
         console.log("Parsed Content", parsedcontent);
         console.log("Tags " + diarydate, tags);
 
@@ -809,18 +809,18 @@ export class PojoConvert {
 
         // Get the list of markdown files in the import directory and start processing.
         if (!this.settings.import_folder) {
-            this.logError("MISSING import folder in this.settings file.")
+            this.pojo.logError("MISSING import folder in this.settings file.")
             return false;
         }
         try {
             exportContent = this.markdownImportFilesDEPRECATED(importFiles);
         } catch (err) {
-            this.logError("ERROR on markdownImport!", err);
+            this.pojo.logError("ERROR on markdownImport!", err);
         }
         this.pojo.logDebug("FINISHED import of " + importFiles.length + " markdown files");
 
 
-        this.logDebug("exported", "FOUND FOR EXPORT", exportContent);
+        this.pojo.logDebug("exported", "FOUND FOR EXPORT", exportContent);
 
         const nrecords = Object.keys(exportContent.diary).length;
         this.pojo.logDebug("BEGIN export of " + nrecords + " content entries to obsidian vault");
@@ -879,14 +879,6 @@ export class PojoConvert {
 
     private exitNow (erra: string[], bend?: boolean) {
         this.pojo.pojoLogs("errors", erra, null, bend);
-    }
-
-    private logError (msg: string, obj?: object) {
-        this.pojo.pojoLogs("errors", [msg], obj, false);
-    }
-
-    private logDebug (msg: string, obj?: object) {
-        this.pojo.pojoLogs("debug", [msg], obj, false);
     }
 
     async getTaggedFiles (folder: string, bSummary: boolean): object {
@@ -1012,7 +1004,7 @@ export class PojoConvert {
         // Load the templates.
         const templates = await this.pojo.getTemplates();
         if (!templates) {
-            this.logError("ERROR on getting templates!");
+            this.pojo.logError("ERROR on getting templates!");
             retobj.success.message = "Error reading Templates";
             retobj.success = false;
             return retobj;
@@ -1182,6 +1174,7 @@ export class PojoConvert {
 
         const doc = {};
         let currsect = this.defsec;
+        doc[currsect] = [];
         const _addPart = function (lnum: number, line: string, section: string) {
             if (section) {
                 const db = section.split("/")[0];
@@ -1237,8 +1230,20 @@ export class PojoConvert {
                     doc[db].push(pobj);
                 }
             } else {
-                console.log("HERE is doc and currsect " + currsect + " line: " + line);
-                const snum = doc[currsect].length;
+                console.log("HERE is doc and currsect " + currsect + " line: " + line, doc);
+                let snum = doc[currsect].length;
+                if (doc[currsect].length == 0) {
+                    const newsect = {
+                        _database: currsect,
+                        Description: []
+                    }
+                    if (currsect == self.defsec) {
+                        newsect._Title = info.title;
+                        newsect.Date = info.Date;
+                    }
+                    doc[currsect].push(newsect);
+                    snum = 1;
+                }
                 const cobj = doc[currsect][snum - 1];
                 console.log("HERE is the current obj " + currsect + " num " + snum);
                 //                console.log("HERE is doc", doc);
@@ -1252,6 +1257,7 @@ export class PojoConvert {
         // NOW go through file adding to appropriate sections!
         for (let lnum = startline; lnum < fcontent.length; lnum++) {
             const sect = sections[lnum + ""];
+            console.log("startline:" + startline + " lnum:" + lnum, sect);
             let section = null;
             let part1, part2 = null;
             if (sect) {
@@ -1287,17 +1293,17 @@ export class PojoConvert {
         const ast2 = fromMarkdown(mdcontent);
         console.log("ast 2", ast2);
 
-        this.logDebug("astTree", "AST Tree", ast);
+        this.pojo.logDebug("astTree", "AST Tree", ast);
 
         // Parse tree. First element is the document!
         if (!ast || ast.type !== "Document") {
-            this.logError("ERROR getting ast tree", ast);
+            this.pojo.logError("ERROR getting ast tree", ast);
             return;
         }
 
         const parsed = {};
 
-        this.logDebug("debug", ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+        this.pojo.logDebug("debug", ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
         for (const child of ast.children) {
             const rval = this.parseASTDEPRECATED(child);
             if (!rval) {
@@ -1305,7 +1311,7 @@ export class PojoConvert {
                 this.pojo.logError("parseAST error encountered. Continuing to Process...");
                 continue;
             }
-            this.logDebug("debug", rval.key, rval.values);
+            this.pojo.logDebug("debug", rval.key, rval.values);
             if (!this.parseItemDEPRECATED(parsed, rval.key, rval.values)) {
                 // ERROR
                 this.pojo.logError("parseItem error encoutered. Continuing to Process...");
@@ -1329,7 +1335,7 @@ export class PojoConvert {
                     const v = el.children[0].value ? el.children[0].value : el.children[0].raw;
                     values = v.split("\n");
                 } else {
-                    this.logError("Unexpected Header type", el);
+                    this.pojo.logError("Unexpected Header type", el);
                     return null;
                 }
                 break;
@@ -1394,17 +1400,17 @@ export class PojoConvert {
                             const va = v.split("\n");
                             values = [...values, ...va];
                         } else {
-                            this.logError("Unexpected List Child type", c);
+                            this.pojo.logError("Unexpected List Child type", c);
                             return null;
                         }
                     }
                 } else {
-                    this.logError("Unexpected List type", el);
+                    this.pojo.logError("Unexpected List type", el);
                     return null;
                 }
                 break;
             default:
-                this.logError("Unrecognized ast element type " + el.type, el);
+                this.pojo.logError("Unrecognized ast element type " + el.type, el);
                 return null;
         }
 
@@ -1504,13 +1510,13 @@ export class PojoConvert {
                     parsed[this.currentdb][this.currentidx].Description.push(decurl);
                 } else {
                     line.imageurl = decurl;
-                    this.logDebug("images", line.imageurl);
+                    this.pojo.logDebug("images", line.imageurl);
 
                     if (!parsed[this.defsec][0]._images) { parsed[this.defsec][0]._images = []; }
                     parsed[this.defsec][0]._images.push(line);
                 }
             } else {
-                this.logError("Unexpected Image type", line);
+                this.pojo.logError("Unexpected Image type", line);
                 return false;
             }
         } else if (key == "UL") {
@@ -1541,7 +1547,7 @@ export class PojoConvert {
             const db = pinfo._database;
             _addParsed(pinfo);
             //            this.pojo.logDebug("HERE is parsed and db " + db, parsed);
-            this.logDebug("parse1", "TAG PARSE with length " + parsed[db].length, pinfo);
+            this.pojo.logDebug("parse1", "TAG PARSE with length " + parsed[db].length, pinfo);
             //        if (key == "H3") {
             this.currentdb = db;
             if (db == this.defsec) {
@@ -1560,7 +1566,7 @@ export class PojoConvert {
             //        }
         } else {
             // Text 
-            this.logDebug("parse1", "HERE is line for key " + key, line);
+            this.pojo.logDebug("parse1", "HERE is line for key " + key, line);
             //            console.log("key " + key, line);
             // See above parsing for H2 to find title of Daily Entry
             if (key == "H2") { line = "## " + line; }
@@ -1569,7 +1575,7 @@ export class PojoConvert {
 
             const ainfo = this.pojo.parseForAnnotations(line);
             if (ainfo) {
-                this.logDebug("parse1", "MUST add this annotation ", ainfo);
+                this.pojo.logDebug("parse1", "MUST add this annotation ", ainfo);
                 this.trackingInfo(parsed, this.currentdb, ainfo);
 
                 for (const k in ainfo) {
@@ -1869,7 +1875,7 @@ export class PojoConvert {
             }
             md.push("");
         } catch (err) {
-            this.logError("ERROR output of section ", err);
+            this.pojo.logError("ERROR output of section ", err);
             return false;
         }
         return true;
@@ -2081,7 +2087,7 @@ export class PojoConvert {
                 Nentry: nentry
             }
             if (db !== this.defsec && !item[typeparam]) {
-                this.logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
+                this.pojo.logError("ERROR - no type defined for dbEntry ( " + typeparam + " )", dbentry);
                 break;
             }
             if (this.settings.databases_no_metadata && this.settings.databases_no_metadata.includes(db)) {
@@ -2232,12 +2238,12 @@ export class PojoConvert {
                                         //                                        console.log("ISODave found " + dp, frontmatter[dp]);
                                         break;
                                     default:
-                                        this.logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
+                                        this.pojo.logError("ERROR in dateplus_to_frontmatter. Not recognized option", dp);
                                 }
                             }
                         }
                     } else {
-                        this.logError("Unsupported add_to_frontmatter action: " + action, fma);
+                        this.pojo.logError("Unsupported add_to_frontmatter action: " + action, fma);
                         process.exit(-1);
                     }
                 }
@@ -2616,8 +2622,8 @@ export class PojoConvert {
             if (typeof robj[p] === 'string') {
                 const wc = robj[p].split(" ").length;
                 if (wc > this.settings.tracking_max_word_count) {
-                    this.logError("ERROR with tracked content. Too many words to be included! Perhaps a mistake in the entry for " + p, robj[p]);
-                    this.logError("ABOVE was while parsing the file " + currentfile);
+                    this.pojo.logError("ERROR with tracked content. Too many words to be included! Perhaps a mistake in the entry for " + p, robj[p]);
+                    this.pojo.logError("ABOVE was while parsing the file " + currentfile);
                     bSkipError = true;
                 }
             }
@@ -2636,7 +2642,7 @@ export class PojoConvert {
                     // This is an item that HAS been encountered previously on THIS import and NOT on a previous import.
                     logs.newstuff[db][p][index] = newval;
                 } else {
-                    this.logError("ERROR encountered checking if tracking item exists. Returned " + exists);
+                    this.pojo.logError("ERROR encountered checking if tracking item exists. Returned " + exists);
                 }
             }
         }

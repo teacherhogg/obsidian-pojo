@@ -194,7 +194,7 @@ export class PojoHelper {
 
 
         const now = new Date();
-        const nowinfo = now.toDateString() + " " + now.valueOf();
+        const nowinfo = now.toISOString().split("T")[0];
 
         const _addItem = function (note: string, type: string, item: object) {
 
@@ -213,7 +213,7 @@ export class PojoHelper {
             }
         }
 
-        _addToLog("## Error Logs");
+        _addToLog("## Latest Error Log");
         _addToLog("Saved record of current error messages (and debug if they are available).");
         _addToLog("");
 
@@ -259,7 +259,7 @@ export class PojoHelper {
         }
 
         const foldername = generatePath(this.settings.folder_pojo, this.settings.subfolder_logs);
-        const filename = "ERRORS " + nowinfo + ".md";
+        const filename = nowinfo + " ERRORS " + now.valueOf() + ".md";
 
         await this.createVaultFile(logfile.join("\n"), foldername, filename, false);
         return foldername + "/" + filename;
@@ -303,7 +303,7 @@ export class PojoHelper {
         this.saveTextToFile(this.logs["errors"], "errors.txt");
     }
 
-    async pojoLogs (category: string, errs: string[], dobj?: object, bend?: boolean) {
+    async pojoLogs (category: string, errs: string[], dobj?: object, bSave?: boolean) {
 
         if (this.debugging) { console.log(">>>>>>>>>>>>>>>"); }
         for (const eem of errs) {
@@ -334,19 +334,26 @@ export class PojoHelper {
         }
 
         if (dobj) {
-            let emsg;
-            try {
-                emsg = JSON.stringify(dobj, null, 3);
-            } catch {
-                emsg = "Error stringifying object";
+            const keysa = Object.keys(dobj);
+            if (keysa.length > 0) {
+                for (const k2 of keysa) {
+                    this.logs[category].push(`${k2}: ${keysa[k2]}`);
+                }
+            } else {
+                if (dobj.message) {
+                    this.logs[category].push(`${dobj.message}`);
+                }
+                if (dobj.stack) {
+                    this.logs[category].push(`Call Stack => `);
+                    this.logs[category].push(`${dobj.stack}`);
+                }
             }
-
-            this.logs[category].push(emsg);
             this.logs[category].push(" ]]");
         }
 
-        if (bend) {
+        if (bSave) {
             this.saveLogs();
+            console.error("HERE DA LOGS", this.logs);
         }
     }
 
@@ -370,7 +377,7 @@ export class PojoHelper {
     }
 
     logError (msg: string, dobj?: object) {
-        this.pojoLogs("errors", [msg], dobj);
+        this.pojoLogs("errors", [msg], dobj, true);
         this.errorstack.push({
             message: msg,
             object: dobj

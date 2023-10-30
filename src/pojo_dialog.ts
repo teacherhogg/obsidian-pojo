@@ -117,30 +117,40 @@ export class PojoZap extends Modal {
                             //                        this.pojo.saveHistory(this.app.vault, newhistory);
 
                             const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
-
                             const dailyFiles = [this.currentFile];
-                            let retobj = await self.convertDailyNotes(convert, dailyFiles, false, false);
-                            console.log("convertDailyNotes Completed.", retobj);
 
-                            if (retobj.status == "noconvert_alreadyconverted") {
-                                new ConfirmationModal(
-                                    this.app,
-                                    "Conversion Already Done",
-                                    "This note has ALREADY been converted. Do you wish to proceed anyway and overrwite any previous converted note and metadata?",
-                                    button => button
-                                        .setButtonText("Proceed with Conversion ANYWAY")
-                                        .setWarning(),
-                                    async () => {
+                            const _doConversion = async function () {
+                                let retobj = await self.convertDailyNotes(convert, dailyFiles, false, false);
+                                console.log("convertDailyNotes Completed.", retobj);
 
-                                        console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ");
-                                        retobj = await self.convertDailyNotes(convert, dailyFiles, false, true)
-                                        console.log("Second Conversion Completed.", retobj);
-                                        self.dailyNoteCompletion(retobj, self.pojo, false);
+                                if (retobj.status == "noconvert_alreadyconverted") {
+                                    new ConfirmationModal(
+                                        this.app,
+                                        "Conversion Already Done",
+                                        "This note has ALREADY been converted. Do you wish to proceed anyway and overrwite any previous converted note and metadata?",
+                                        button => button
+                                            .setButtonText("Proceed with Conversion ANYWAY")
+                                            .setWarning(),
+                                        async () => {
 
-                                    }).open();
-                            } else {
-                                self.dailyNoteCompletion(retobj, self.pojo, false);
+                                            console.log("WE ARE CHOOSING TO CONVERT AGAIN!! ");
+                                            retobj = await self.convertDailyNotes(convert, dailyFiles, false, true)
+                                            console.log("Second Conversion Completed.", retobj);
+                                            self.dailyNoteCompletion(retobj, self.logs, self.pojo, false);
+
+                                        }).open();
+                                } else {
+                                    self.dailyNoteCompletion(retobj, self.logs, self.pojo, false);
+                                }
                             }
+
+                            console.log("currentFile ", this.currentFile);
+                            const title = "Converting Daily Note " + this.currentFile.name;
+                            let message = "NOTE that CONVERTED notes are indicated with a ⚡ suffix.";
+                            message += "\nOriginal Notes are kept in the archived POJO subfolder."
+                            message += "\n " + self.settings.folder_pojo + "/" + self.settings.subfolder_archived_daily_notes;
+
+                            new ProgressDialog(self.app, title, message, _doConversion).open();
                         }
                     })
             )
@@ -187,7 +197,7 @@ export class PojoZap extends Modal {
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
                         const dailyFiles = convert.getInputFiles(self.settings.folder_daily_notes);
                         const retobj = await self.convertDailyNotes(convert, dailyFiles, true, false);
-                        self.dailyNoteCompletion(retobj, self.pojo, true);
+                        self.F(retobj, self.pojo, true);
                     })
             )
             .addButton((btn) =>
@@ -236,18 +246,18 @@ export class PojoZap extends Modal {
             }
             newel.createEl("hr");
         }
-
-        if (this.logs.debug) {
-            new Setting(contentEl)
-                .setName("Debug Logs")
-
-            const newel = contentEl.createEl("div");
-            for (const log of this.logs.debug) {
-                newel.createEl("div", { text: log });
-            }
-            newel.createEl("hr");
-        }
-
+        /*
+                if (this.logs.debug) {
+                    new Setting(contentEl)
+                        .setName("Debug Logs")
+        
+                    const newel = contentEl.createEl("div");
+                    for (const log of this.logs.debug) {
+                        newel.createEl("div", { text: log });
+                    }
+                    newel.createEl("hr");
+                }
+        */
         if (this.logs.errors) {
             //            delete this.logs.errors;
             if (this.logs.debug) {
@@ -261,7 +271,7 @@ export class PojoZap extends Modal {
         contentEl.empty();
     }
 
-    async dailyNoteCompletion (retobj: object, pojo: object, bWriteLogs: boolean) {
+    async dailyNoteCompletion (retobj: object, logs: object, pojo: object, bWriteLogs: boolean) {
         console.log("COMPLETED CONVERSOINS ", retobj);
 
         // Write out a status log of the conversion.
@@ -274,7 +284,9 @@ export class PojoZap extends Modal {
         new DailyNoteConversionComplete(
             this.app,
             retobj,
-            logfilename
+            logfilename,
+            logs,
+            pojo
         ).open();
     }
 
@@ -343,6 +355,7 @@ export class PojoZap extends Modal {
             }
             else if (retval.type !== "success") {
                 console.error("COULD NOT CONVERT as encountered error on " + filename, retval);
+                console.error("HERE is errorStack", self.pojo.errorStack());
                 returnObject.failure[filename] = { errors: self.pojo.errorStack(), type: retval.type };
                 nFailure++;
             } else {
@@ -710,16 +723,56 @@ export class DatabaseReview extends Modal {
     }
 }
 
+class ProgressDialog extends Modal {
+    private callback;
+    private title: string;
+    private message: string;
+
+    constructor(app: App, title: string, message: string, callback) {
+        super(app);
+        this.callback = callback
+        this.title = title;
+        this.message = message;
+    }
+
+    async onOpen () {
+        this.display();
+        await this.callback();
+        console.log("ALL DONE - cLOSING NOEW");
+        this.close();
+    }
+
+
+    private display () {
+        const self = this;
+        const { contentEl } = this;
+
+        this.contentEl.empty();
+        new Setting(contentEl)
+            .setName(this.title)
+            .setDesc(this.message)
+    }
+
+    onClose () {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
+
 class DailyNoteConversionComplete extends Modal {
     private app: App;
     private infoobj: object;
     private logfile: string;
+    private logs: object;
+    private pojo: object;
 
-    constructor(app: App, infoobj: object, logfile: string) {
+    constructor(app: App, infoobj: object, logfile: string, logs: object, pojo: object) {
         super(app);
         this.app = app;
         this.infoobj = infoobj;
         this.logfile = logfile;
+        this.logs = logs;
+        this.pojo = pojo;
     }
 
     async onOpen () {
@@ -741,12 +794,6 @@ class DailyNoteConversionComplete extends Modal {
         const _parseItem = function (key, val) {
             if (val == null) {
                 msg += ` ${key}:`
-            } else if (typeof val === 'object') {
-                msg += ` (${key}:`;
-                for (const key2 in val) {
-                    _parseItem(key2, val[key2]);
-                }
-                msg += ')';
             } else if (Array.isArray(val)) {
                 msg += ` [${key}:`
                 let index = 1;
@@ -755,6 +802,18 @@ class DailyNoteConversionComplete extends Modal {
                     index++;
                 }
                 msg += ']';
+            } else if (typeof val === 'object') {
+                const keysa = Object.keys(val);
+                msg += ` (${key}:`;
+                if (keysa.length > 0) {
+                    for (const key2 of keysa) {
+                        _parseItem(key2, val[key2]);
+                    }
+                } else {
+                    msg += ` ${val}`;
+                }
+                msg += ')';
+
             } else {
                 msg += ` ${key}: ${val}`;
             }
@@ -768,7 +827,7 @@ class DailyNoteConversionComplete extends Modal {
         return msg;
     }
 
-    private display () {
+    private async display () {
         const self = this;
         const { contentEl } = this;
 
@@ -824,6 +883,42 @@ class DailyNoteConversionComplete extends Modal {
             }
             warnDiv.createEl("hr");
 
+        }
+
+
+        console.log("HERE IS logs DOOBY DOOBY", this.logs);
+        if (this.logs.errors) {
+            new Setting(contentEl)
+                .setName("Error Logs")
+
+            const newel = contentEl.createEl("div");
+            const logfile = await this.pojo.saveErrorLogFile(this.logs);
+            if (logfile) {
+                newel.createEl("div", { text: "Errors logged to " + logfile });
+            }
+
+            for (const log of this.logs.errors) {
+                newel.createEl("div", { text: log });
+            }
+            newel.createEl("hr");
+        }
+
+        if (this.logs.debug) {
+            new Setting(contentEl)
+                .setName("Debug Logs")
+
+            const newel = contentEl.createEl("div");
+            for (const log of this.logs.debug) {
+                newel.createEl("div", { text: log });
+            }
+            newel.createEl("hr");
+        }
+
+        if (this.logs.errors) {
+            //            delete this.logs.errors;
+            if (this.logs.debug) {
+                delete this.logs.debug;
+            }
         }
     }
 
