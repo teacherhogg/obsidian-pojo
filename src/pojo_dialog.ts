@@ -1,5 +1,6 @@
 import { App, Modal, Setting, TFile } from "obsidian";
 import { PojoConvert } from "./pojo_convert";
+import { PojoTimeline } from "./pojo_timeline";
 import { BaseTagSetting } from "./setting/baseTagSetting";
 import { PojoSettings } from './settings';
 
@@ -180,10 +181,11 @@ export class PojoZap extends Modal {
         new Setting(contentEl)
             .addButton((btn) =>
                 btn
-                    .setButtonText("Excalidraw Testing")
+                    .setButtonText("Timeline")
                     .onClick(async () => {
-                        console.log('Testing Excalidraw API', self.pojo);
-                        const retobj = await self.excaliDrawTest();
+                        console.log('Testing Timeline', self.pojo);
+                        const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
+                        const retobj = await timeline.createTimeline();
                         console.log('Finished da test', retobj);
                     })
             )
@@ -206,22 +208,31 @@ export class PojoZap extends Modal {
                     .onClick(async () => {
                         console.log('MOC Updates', self.pojo);
                         const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
-                        //                        await convert.getTaggedFiles(self.settings.folder_daily_notes, true);
-                        //                        console.log("DA DONE");
-                        const retobj = await convert.createMOCFiles(false);
-                        console.log("DONE MOC FER NOW", retobj, true);
-                        const message = "Finished with the creation of " + retobj.mocCount + " Maps of Content (MOC).";
-                        new InformationModal(
-                            self.app, "MOC Creation Completed", message
-                        ).open();
+
+                        let retobj, message;
+                        const _doMOCs = async function () {
+                            retobj = await convert.createAllMOCFiles(false);
+                            console.log("DONE MOC FER NOW", retobj, true);
+                            message = "Finished with the creation of " + retobj.mocCount + " Maps of Content (MOC).";
+                            new InformationModal(
+                                self.app, "MOC Creation Completed", message
+                            ).open();
+                        }
+
+                        const title = "Creating and/or Updating MOCs";
+                        message = "NOTE that MOC is an acronym for Maps of Content.";
+                        message += "\nThis can take quite a while....";
+                        message += "\n(FYI - Scuba is an acronym for Self Contained Underwater Breathing Apparatus).";
+
+                        new ProgressDialog(self.app, title, message, _doMOCs).open();
                     })
             )
         /*
         if (this.history.history_editors) {
-
+        
             new Setting(contentEl)
                 .setName("History Editing")
-
+        
             const newel = contentEl.createEl("div");
             for (const editor in this.history.history_editors) {
                 newel.createEl("div", { text: "[ " + editor + " ] " + this.history.history_editors[editor] });
@@ -250,7 +261,7 @@ export class PojoZap extends Modal {
                 if (this.logs.debug) {
                     new Setting(contentEl)
                         .setName("Debug Logs")
-        
+         
                     const newel = contentEl.createEl("div");
                     for (const log of this.logs.debug) {
                         newel.createEl("div", { text: log });
@@ -288,11 +299,6 @@ export class PojoZap extends Modal {
             logs,
             pojo
         ).open();
-    }
-
-    async excaliDrawTest () {
-        console.log("excaliDrawTest");
-        return null;
     }
 
     async convertDailyNotes (convert, dailyFiles, bConvertAllNotes, bConvertAgain) {
@@ -726,13 +732,13 @@ export class DatabaseReview extends Modal {
 class ProgressDialog extends Modal {
     private callback;
     private title: string;
-    private message: string;
+    private message: string[];
 
     constructor(app: App, title: string, message: string, callback) {
         super(app);
         this.callback = callback
         this.title = title;
-        this.message = message;
+        this.message = message ? message.split("\n") : [""];
     }
 
     async onOpen () {
@@ -750,7 +756,16 @@ class ProgressDialog extends Modal {
         this.contentEl.empty();
         new Setting(contentEl)
             .setName(this.title)
-            .setDesc(this.message)
+            .setDesc(this.message[0])
+
+        if (this.message.length > 1) {
+            const mDiv = contentEl.createDiv();
+            for (let n = 1; n < this.message.length; n++) {
+                mDiv.createEl("div", { text: this.message[n] });
+            }
+        }
+
+        //        contentEl.createEl("svg", {src: })
     }
 
     onClose () {

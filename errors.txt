@@ -1,12 +1,20 @@
 [[ 
-ERROR on importing and parsing markdown!
-Cannot read properties of undefined (reading 'Description')
-Call Stack => 
-TypeError: Cannot read properties of undefined (reading 'Description')
-    at _addPart (plugin:obsidian-pojo:18805:21)
-    at PojoConvert.parseMarkdownNew (plugin:obsidian-pojo:18830:9)
-    at PojoConvert.convertDailyNote (plugin:obsidian-pojo:18240:28)
-    at async PojoZap.convertDailyNotes (plugin:obsidian-pojo:20392:22)
-    at async ProgressDialog._doConversion [as callback] (plugin:obsidian-pojo:20252:26)
-    at async ProgressDialog.onOpen (plugin:obsidian-pojo:20657:5)
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
  ]]

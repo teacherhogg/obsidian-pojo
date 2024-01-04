@@ -24,7 +24,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
     private initDBSuccess: false;
 
     private async initializeProvider (invault: Vault): Promise<boolean> {
-        console.log("initializeProvider CALLED");
+        //        console.log("initializeProvider CALLED");
         if (this.pojo) {
             console.log("Already completed initializeProvder");
             return true;
@@ -144,7 +144,7 @@ class PojoSuggestionProvider implements SuggestionProvider {
     }
 
     suggestionSelected (value: Suggestion): null {
-        console.log("IN POJO WITH value of suggestion", value);
+        //        console.log("IN POJO WITH value of suggestion", value);
         return null;
     }
 

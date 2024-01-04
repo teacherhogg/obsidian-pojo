@@ -34,10 +34,10 @@ export default class PojoPlugin extends Plugin {
             this.settings.frontmatter_always_add_moc.push("POJO: " + this.manifest.version);
         }
 
-        console.log("POJO PLUGIN onload called...", this.settings);
+        console.groupCollapsed("POJO Plugin Loading Version " + this.manifest.version);
+        console.log("POJO settings", this.settings);
         // This initializes all of pojo.
         await Pojo.loadSuggestions(this.app.vault, this.settings, this.app);
-        console.log("POJO initialized Version " + this.settings.version_manifest);
 
         this.snippetManager = new SnippetManager();
         this._suggestionPopup = new SuggestionPopup(this.app, this.settings, this.snippetManager);
@@ -54,6 +54,8 @@ export default class PojoPlugin extends Plugin {
         if ((this.app.vault as any).config?.legacyEditor) {
             console.log("Pojo: Without Live Preview enabled, most features of Pojo will not work properly!");
         }
+
+        console.groupEnd();
     }
 
     private setupCommands () {

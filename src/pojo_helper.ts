@@ -78,10 +78,12 @@ export class PojoHelper {
             this.metatimes[ifield.type].push(ifield);
         }
 
-        //        console.log("INFO for meta metaunits", this.metaunits);
-        //        console.log("INFO for meta metatimes", this.metatimes);
-        //        console.log("INFO for meta metaprops", this.metaprops);
-        //        console.log("INFO for meta metainfo", this.metainfo);
+        console.groupCollapsed("metameta");
+        console.log("metaunits", this.metaunits);
+        console.log("metatimes", this.metatimes);
+        console.log("metaprops", this.metaprops);
+        console.log("metainfo", this.metainfo);
+        console.groupEnd();
     }
 
     getMetaMeta (type: string, pname?: string): object | string[] | null {
@@ -357,15 +359,22 @@ export class PojoHelper {
         }
     }
 
-    logDebug (category: string, obj?: string | object, dobj?: object) {
-        const msgs = [category];
-        if (obj) {
-            if (typeof obj === 'string') {
-                msgs.push(obj);
-            } else {
-                dobj = obj;
-            }
+    logDebug (category: string, obj: string | object, bOutputNow?: boolean) {
+
+        if (bOutputNow && obj) {
+            console.group(category);
+            console.warn(obj);
+            console.groupEnd();
         }
+
+        let dobj = null;
+        const msgs = [category];
+        if (typeof obj === 'string') {
+            msgs.push(obj);
+        } else {
+            dobj = obj;
+        }
+
         this.pojoLogs("debug", msgs, dobj);
     }
 
@@ -626,7 +635,7 @@ export class PojoHelper {
         this.logDebug("extrctMetaMeta metaunits", this.metaunits);
         //        console.log("HERE IS metaunits", this.metaunits);
         this.logDebug("HERE is record to add meta", record);
-        console.log("HERE IS record", record);
+        //        console.log("HERE IS record", record);
 
         for (let tag of record._tags) {
             const leadingnum = tag.replace(/[^0-9]/g, "");
@@ -675,7 +684,7 @@ export class PojoHelper {
                     fieldi = this.metaunits[unit];
                 }
             }
-            //          console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
+            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
 
             if (!fieldi) {
                 this.logError("ERROR getting fieldi for tag " + tag);
@@ -725,22 +734,26 @@ export class PojoHelper {
         }
 
         this.logDebug("ADDED meta", record);
-        console.log("Added META", record);
+        //        console.log("Added META", record);
 
         return true;
     }
 
+    getNowDateString (): string {
+        const nowDate = new Date();
+        return nowDate.toDateString() + " " + nowDate.toLocaleTimeString();
+    }
+
+    getLocalDate (inputDate: string): Date {
+        const zdate = inputDate ? new Date(inputDate) : new Date();
+        const offset = zdate.getTimezoneOffset() * 60 * 1000;
+        const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
+        return new Date(zdatenum);
+    }
+
     /** If datestr is null, then this is just for today's date**/
     getDailyNoteName (datestr: string): string {
-        let zdate;
-        if (datestr) {
-            zdate = new Date(datestr);
-            const offset = zdate.getTimezoneOffset() * 60 * 1000;
-            const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
-            zdate = new Date(zdatenum);
-        } else {
-            zdate = new Date();
-        }
+        const zdate = this.getLocalDate(datestr);
 
         //        console.log("DA DATE from " + source, newDate);
         const dow = zdate.toLocaleDateString("en-US", {
@@ -750,10 +763,46 @@ export class PojoHelper {
         return notename;
     }
 
-    getFieldMOCName (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
+    getMOCReferences (dbinfo: object, typeval: string, fieldname: string, fieldvalue: string[]): string[] | null {
+        if (!typeval && !fieldname) {
+            // database reference
+            return [dbinfo.database];
+        }
+
+        if (!dbinfo || !dbinfo["field-info"] || !dbinfo["field-info"][fieldname]) { return null; }
+        const fldinfo = dbinfo["field-info"][fieldname];
+
+        // mocref is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
+        if (fldinfo.mocref == "moc" || fldinfo.mocref == "moc-type") {
+            // moc is the default mocref and it's meaning depends on if it is a database, type, or other param.
+            console.log("moccheck? ")
+            if (dbinfo.type == fieldname) {
+                // type
+                return fieldvalue.map((val) => `${dbinfo.database}_${val}`);
+            } else {
+                if (!fieldvalue || (fieldvalue.length == 1 && !fieldvalue[0])) {
+                    // NO actual value!
+                    return null;
+                }
+
+                // other param
+                if (fldinfo.mocref == "moc") {
+                    return fieldvalue;
+                } else {
+                    // moc-type
+                    return fieldvalue.map((val) => `${typeval}_${val}`);
+                }
+            }
+        } else {
+            // Any other value is not recognized and not used.
+            return null;
+        }
+    }
+
+    getFieldMOCNameDEPRECATED (dbinfo: object, type: string, fieldname: string, fieldvalues: string): string[] | null {
         if (!dbinfo || !dbinfo["field-info"] || !dbinfo["field-info"][fieldname]) { return null; }
 
-        // moc is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
+        // mocref is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
         const mocref = dbinfo["field-info"][fieldname].mocref;
         const multi = dbinfo["field-info"][fieldname].multi;
 
@@ -761,7 +810,7 @@ export class PojoHelper {
             return null;
         }
 
-        this.logDebug("MOSC TIMES " + fieldname + " mocref " + mocref, fieldvalues);
+        this.logDebug("getFieldMOCName for " + fieldname + " mocref " + mocref + " multi: " + multi, fieldvalues);
 
         let retarray = null;
         if (mocref == "moc") {
@@ -776,7 +825,11 @@ export class PojoHelper {
                     }
                 }
             } else {
-                retarray.push(fieldvalues);
+                if (Array.isArray(fieldvalues)) {
+                    retarray = fieldvalues;
+                } else {
+                    retarray.push(fieldvalues);
+                }
             }
         } else if (mocref == "moc-type") {
             retarray = [];
@@ -800,7 +853,7 @@ export class PojoHelper {
         }
 
 
-        this.logDebug("MOSC returns", retarray);
+        this.logDebug("getFieldMOCName returns", retarray);
         return retarray;
     }
 
@@ -1420,7 +1473,7 @@ export class PojoHelper {
         tagline = tagline.trimEnd();
 
         this.logDebug("HERE DA LINE", tagline);
-        console.log("HERA DA LINE", tagline);
+        //        console.log("HERA DA LINE", tagline);
 
         // Pojo Tags (or H3) do not have spaces in the reference except for Daily Entry
         if (this.settings.daily_entry_h3.includes(tagline)) {
@@ -1454,12 +1507,12 @@ export class PojoHelper {
 
         plen = params.length;
         this.logDebug("FILTERED PARAMS " + plen, params);
-        console.log("FILTERED PARAMS " + plen, params);
+        //        console.log("FILTERED PARAMS " + plen, params);
 
         if (tags) {
             robj._tags = tags;
             this.logDebug("Stripped out tags! ", tags);
-            console.log("Stripped out tags! ", tags);
+            //            console.log("Stripped out tags! ", tags);
             this.logDebug("Last param is tag: " + bLastParamTag + " trailing space: " + bTrailingSpace);
         }
 
@@ -1506,7 +1559,7 @@ export class PojoHelper {
 
                 const roline = params.join(" ");
                 this.logDebug("roline is " + roline);
-                console.log("roline is " + roline);
+                //                console.log("roline is " + roline);
                 const aparams = this.splitParams(roline);
 
                 if (aparams) {
@@ -1601,13 +1654,13 @@ export class PojoHelper {
         //
         //      })
 
-        console.log("HERE IS robj.Description", robj.Description);
+        //        console.log("HERE IS robj.Description", robj.Description);
 
         // Check parsed info for any tags and process according to the metameta settings!
         this.extractMetaMeta(robj);
 
         //        this.logDebug("HERE IS ROBJ", robj);
-        console.log("HERE DA ROBJ", robj);
+        //        console.log("HERE DA ROBJ", robj);
 
         return robj;
     }
@@ -1709,6 +1762,7 @@ export class PojoHelper {
             }
 
             const svalues = this.getValues(dinfo, pobj._loc, pobj._type);
+            //            console.log("HERE ARE svalues", svalues);
 
             let locval = pobj._locval;
             if (dinfo["field-info"] && dinfo["field-info"][pobj._loc]) {
@@ -1879,7 +1933,7 @@ export class PojoHelper {
     }
 
     // Typically splitting A parameter with either COMMA or DASH
-    private splitParam (multi: string, param: string): string[] | string {
+    private splitParam (multi: string, param: string): string[] {
 
         if (!param) {
             return [""];

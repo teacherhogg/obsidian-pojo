@@ -149,3 +149,7 @@ span.completr-suggestion-placeholder6 span {
     width: 100%;
     height: 100%;
 }
+
+.prompt-center {
+    text-align: center;
+}

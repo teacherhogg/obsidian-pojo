@@ -70,7 +70,7 @@ export class PojoConvert {
         await this.pojo.createVaultFile(mm.join("\n"), this.settings.folder_master_moc, this.settings.file_master_moc + ".md", true);
     }
 
-    async createMOCFiles (bCreateOnly: boolean): Promise<object> | null {
+    async createAllMOCFiles (bCreateOnly: boolean): Promise<object> | null {
 
         // Load the MOC templates.
         const templates = await this.pojo.getTemplates();
@@ -99,7 +99,7 @@ export class PojoConvert {
         console.log("HERE ARE databases", dbs);
 
         for (const db in dbs.databases) {
-            const mret = await this.createMOCFile(db, dbs.databases[db], templates, tagSummary, info);
+            const mret = await this.createMOCFiles(db, dbs.databases[db], templates, tagSummary, info);
         }
 
         // Create Master MOC
@@ -108,7 +108,7 @@ export class PojoConvert {
         return info;
     }
 
-    async createMOCFile (dbname: string, dbdata: object, templates: object, tagsummary: object, info: object): Promise<object> {
+    async createMOCFiles (dbname: string, dbdata: object, templates: object, tagsummary: object, info: object): Promise<object> {
         //        console.log("createMOC Files for " + dbname, dbdata);
         const self = this;
         const dbinfo = dbdata._database;
@@ -262,15 +262,19 @@ export class PojoConvert {
             return head;
         }
 
-        const _createMOC = async function (mocname: string, moctype: string, filterkey?: string, filtervalue?: string, subfilterkey?: string, subfiltervalue?: string) {
+        const _createMOC = async function (moctype: string, typeval?: string, filterkey?: string, filtervalue?: string, subfilterkey?: string, subfiltervalue?: string): Promise<string> {
 
-            let mocnameFile = mocname;
-            if (!subfiltervalue && moctype == "MOC-multi") {
-                mocnameFile = `${dbname}_${mocname}`;
+            const fieldname = subfilterkey ? subfilterkey : filterkey;
+            const fieldvalue = subfiltervalue ? subfiltervalue : filtervalue;
+            const moclinks = self.pojo.getMOCReferences(dbinfo, typeval, fieldname, [fieldvalue]);
+            if (!moclinks) {
+                console.log(`_createMoc WARNING NO MOC for type ${moctype} (${typeval}) [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
+                return "";
             }
-            console.log(`_createMoc ${mocnameFile} type ${moctype} [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
+            const moclink = moclinks[0];
+            console.log(`_createMoc ${moclink} type ${moctype} (${typeval}) [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
 
-            const { mocFileName, mocFileInfo } = await _initMOCFile(mocnameFile);
+            const { mocFileName, mocFileInfo } = await _initMOCFile(moclink);
             //            console.log("returned from _initMocFile " + mocFileName, mocFileInfo);
 
             let moc;
@@ -310,7 +314,7 @@ export class PojoConvert {
                 info.mocCount++;
             } else {
                 // MOC exists so we will ADD to it.
-                console.error("EXISTING MOC found for " + mocname, mocFileInfo);
+                console.error("EXISTING MOC found for " + moclink, mocFileInfo);
                 _addMOCtablesFM(mocFileInfo.frontmatter, moctype, filterkey, filtervalue, subfilterkey, subfiltervalue);
 
                 moc = "---\n"
@@ -358,6 +362,7 @@ export class PojoConvert {
 
             await self.pojo.createVaultFile(moc, self.settings.folder_moc, mocFileName, true);
             //            console.log("Finished creating MOC file...");
+            return moclink;
         }
 
         const minMoc = this.settings.minEntriesForMoc;
@@ -375,11 +380,7 @@ export class PojoConvert {
             return false;
         }
 
-        // Create a Database MOC
-        //        console.log("CREATE DABASE MOC " + dbname);
-        await _createMOC(dbname, "MOC-database");
-
-        const _createMOCs = async function (mocname: string, moctype: string, multi: string, filterkey: string, filtervalue: string, subfilterkey?: string, subfiltervalue?: string) {
+        const _createMOCs = async function (moctype: string, typeval: string, multi: string, filterkey: string, filtervalue: string, subfilterkey?: string, subfiltervalue?: string) {
             if (filtervalue && Array.isArray(filtervalue)) {
                 console.warn("NOT expecting this value to be an array!", filtervalue);
             }
@@ -392,23 +393,33 @@ export class PojoConvert {
                 valsa = filtervalue.split("-");
             }
 
-            if (valsa.length > 1) {
-                console.warn("MULTIPLE TIMES..." + mocname, valsa);
-            }
+            //            if (valsa.length > 1) {
+            //                console.warn("MULTIPLE TIMES..." + mocname, valsa);
+            //            }
+
+            let mlink;
             for (const val of valsa) {
                 if (_mocOK(dbname, val, subfiltervalue)) {
-                    await _createMOC(mocname, moctype, filterkey, val, subfilterkey, subfiltervalue);
+                    mlink = await _createMOC(moctype, typeval, filterkey, val, subfilterkey, subfiltervalue);
+                    console.log("mlink " + mlink);
                 }
             }
         }
-
-        // Create a MOC for each Database Type Value
 
         let tmulti = "NA";
         if (dbinfo["field-info"] && dbinfo["field-info"][typekey]) {
             tmulti = dbinfo["field-info"][typekey].multi;
         }
 
+        let mlink;
+
+        // Create a Database MOC
+        console.group("MOC Database " + dbinfo.database);
+        mlink = await _createMOC("MOC-database");
+        console.log("mlink " + mlink);
+        console.groupEnd();
+
+        // Create a MOC for each Database Type
         if (dbdata[typekey]) {
             const typevals = dbdata[typekey];
             //            if (typevals.length > 1) {
@@ -417,11 +428,12 @@ export class PojoConvert {
             for (const typeval of typevals) {
 
                 if (_mocOK(dbname, typeval)) {
-                    await _createMOCs(typeval, "MOC-multi", tmulti, typekey, typeval);
+                    console.group("MOC Type " + dbinfo.database + " type: " + typeval);
+                    await _createMOCs("MOC-multi", typeval, tmulti, typekey, typeval);
+                    console.groupEnd();
                 }
             }
         }
-
 
         // Create a MOC for each Database Param Value
         if (dbinfo.params && dbinfo["field-info"]) {
@@ -429,28 +441,29 @@ export class PojoConvert {
                 // Check if field-info there.
                 const fldinfo = dbinfo["field-info"][param];
                 if (fldinfo && fldinfo.allowed) {
-                    if (fldinfo.allowed == "history" || fldinfo.allowed == "fixed") {
-                        if (dbdata[param]) {
+                    // Skip the TYPE param as done that above.
+                    if (param !== typekey && dbdata[param]) {
+                        if (fldinfo.allowed == "history" || fldinfo.allowed == "fixed") {
                             for (const pvalue of dbdata[param]) {
-                                await _createMOCs(pvalue, "MOC-multi", "NA", param, pvalue);
+                                await _createMOCs("MOC-multi", null, "NA", param, pvalue);
                             }
-                        }
-                    } else if (fldinfo.allowed == "history-type") {
-                        const typevals = dbdata[typekey];
-                        if (typevals) {
-                            for (const typeval of typevals) {
-                                const hkey = typeval + "_" + param;
-                                //                                if (typevals.length > 1) {
-                                //                                    console.warn("MULTIPLE MOCS history-type " + dbname + " -> " + hkey, typevals, dbdata[hkey]);
-                                //                                }
-                                if (dbdata[hkey]) {
-                                    for (const pvalue of dbdata[hkey]) {
-                                        await _createMOCs(pvalue, "MOC-multi", tmulti, typekey, typeval, param, pvalue);
+                        } else if (fldinfo.allowed == "history-type") {
+                            const typevals = dbdata[typekey];
+                            if (typevals) {
+                                for (const typeval of typevals) {
+                                    const hkey = typeval + "_" + param;
+                                    //                                if (typevals.length > 1) {
+                                    //                                    console.warn("MULTIPLE MOCS history-type " + dbname + " -> " + hkey, typevals, dbdata[hkey]);
+                                    //                                }
+                                    if (dbdata[hkey]) {
+                                        for (const pvalue of dbdata[hkey]) {
+                                            await _createMOCs("MOC-multi", typeval, tmulti, typekey, typeval, param, pvalue);
+                                        }
                                     }
                                 }
+                            } else {
+                                console.warn("Interestingly no data found for " + dbname + " and " + typekey);
                             }
-                        } else {
-                            console.warn("Interestingly no data found for " + dbname + " and " + typekey);
                         }
                     }
                 }
@@ -466,7 +479,7 @@ export class PojoConvert {
         // We are converting a daily note AGAIN if convertAgain is ture
         // This means the original file has already been archived and we need to redo from that copy!
 
-        this.pojo.logDebug("Converting Daily Note ", inputFile, convertAgain);
+        this.pojo.logDebug("Converting Daily Note again? " + convertAgain, inputFile);
         console.log("HERE are suggestedTags", suggestedTags);
         console.log("HERE are databases", databases);
 
@@ -589,7 +602,7 @@ export class PojoConvert {
             }
         }
 
-        this.pojo.logDebug("exported", "FOUND FOR EXPORT", parsedcontent);
+        this.pojo.logDebug("exported", parsedcontent);
         console.log("Parsed Content", parsedcontent);
         console.log("Tags " + diarydate, tags);
 
@@ -666,6 +679,9 @@ export class PojoConvert {
                         this.addFrontMatterForDatabase(frontmatter, db, parsedcontent[db], dbinfo);
 
                         // Add sections for other database information 
+                        //                        this.addMarkdownCalloutSectionDEPRECATED(sectionsOLD, diarydate, db, parsedcontent[db], dbinfo);
+
+                        // Add sections for other database information 
                         this.addMarkdownCalloutSection(sections, diarydate, db, parsedcontent[db], dbinfo);
                     }
 
@@ -726,7 +742,6 @@ export class PojoConvert {
 
         // Create markdown files for metadata records
         await this.writeOutMetadataRecords(dailynotefile, newrecords);
-
 
         return {
             "type": "success",
@@ -820,7 +835,7 @@ export class PojoConvert {
         this.pojo.logDebug("FINISHED import of " + importFiles.length + " markdown files");
 
 
-        this.pojo.logDebug("exported", "FOUND FOR EXPORT", exportContent);
+        this.pojo.logDebug("exported", exportContent);
 
         const nrecords = Object.keys(exportContent.diary).length;
         this.pojo.logDebug("BEGIN export of " + nrecords + " content entries to obsidian vault");
@@ -1609,107 +1624,6 @@ export class PojoConvert {
         return true;
     }
 
-    private createMOCFilesDEPRECATED (bOverwrite: boolean) {
-
-        const self = this;
-        const _getMOCcontent = function (moctype: string): object {
-            const moctemplate = generatePath(process.env.POJO_FOLDER, "this.settings", self.settings.subfolder_templates, moctype + ".md");
-            let mdcontent;
-            try {
-                mdcontent = fs.readFileSync(moctemplate, 'utf8');
-            } catch (err) {
-                this.exitNow(["ERROR getting MOC template file for " + moctype, err.message]);
-            }
-            return mdcontent;
-        }
-
-        const MOCtemplate = {
-            database: _getMOCcontent("database"),
-            param: _getMOCcontent("param"),
-            value: _getMOCcontent("value")
-        }
-
-        const _getMOCfrontmatter = function (moctype: string, dbname: string, param: string, value: string): object {
-
-            const dbinfo = this.pojo.getDatabaseInfo(dbname);
-
-            const fm = [];
-            fm.push("---");
-            if (this.settings.frontmatter_always_add_moc) {
-                for (const line of this.settings.frontmatter_always_add_moc) {
-                    fm.push(line);
-                }
-            }
-            fm.push(`database: ${dbname}`);
-            fm.push(`Category: MOC-${moctype}`);
-            if (moctype == 'database') {
-                fm.push(`viewparams: []`);
-            } else if (moctype == 'param') {
-                fm.push(`viewparams: []`);
-                fm.push(`filterkey: ${param}`);
-            } else if (moctype == 'value') {
-                const vps = [];
-                for (const vp of dbinfo.params) {
-                    if (!this.settings.tracking_params_exclude.includes(vp)) {
-                        vps.push(vp);
-                    }
-                }
-                const vpval = vps.join(",");
-                fm.push(`viewparams: [${vpval}]`);
-                fm.push(`filterkey: ${param}`);
-                fm.push(`filtervalue: ${value}`);
-            } else {
-                this.exitNow(["Unknown MOC Type " + moctype]);
-            }
-
-            fm.push("---");
-            return parseYaml(fm);
-        }
-
-
-        const _createMOC = async function (fname: string, moctype: string, dbname: string, param: string, value: string) {
-
-            let mocname;
-            if (moctype == "value") {
-                // Only create MOC for values that appear more than once.
-                const a = fname.split("=");
-                const count = parseInt(a[1], 10);
-                if (count <= 1) {
-                    return;
-                }
-                mocname = a[0];
-                value = a[0];
-            } else {
-                mocname = fname;
-            }
-            const moc = generatePath(this.settings.folder_moc, mocname + ".md");
-
-            if (bOverwrite || !fs.existsSync(moc)) {
-                // Only create if an existing file does not exist!
-                const mfm = _getMOCfrontmatter(moctype, dbname, param, value);
-                const md = mfm.join("\n") + "\n" + MOCtemplate[moctype];
-                await this.pojo.createVaultFile(md, this.settings.folder_moc, mocname + ".md");
-                fs.outputFileSync(moc, md);
-            }
-        };
-
-
-        for (const dbname in logs.tracking) {
-            const dbe = logs.tracking[dbname];
-            // Create a database MOC
-            _createMOC(dbname, "database", dbname);
-
-            //        this.pojo.logDebug("DBE for " + dbname, dbe);
-            for (const param in dbe) {
-                const pvs = dbe[param];
-                _createMOC(param, "param", dbname, param)
-                for (const pv of pvs) {
-                    _createMOC(pv, "value", dbname, param, pv)
-                }
-            }
-        }
-    }
-
     private addFrontMatterForDatabase (frontmatter: object, db: string, dbentry: object[], dbinfo: object) {
 
         const _checkKey = function (key: string): boolean {
@@ -1819,7 +1733,7 @@ export class PojoConvert {
 
     private addCalloutSection (md: string[], database: string, section: object) {
 
-        this.pojo.logDebug("ZZZZ HERE is THE SECTION for " + database, section);
+        this.pojo.logDebug("ZZZZ HERE is THE SECTION for " + database, section.true);
         //        console.log("ZZZZ HERE is THE SECTION for " + database, section);
 
         // Sections (using callouts!)
@@ -1841,33 +1755,38 @@ export class PojoConvert {
                         }
                     }
                 }
-                const item = content[type];
+                const itemA = content[type];
                 let hline;
                 hline = `> `;
                 hline += `**[[${type}]]**`;
 
-                if (item.values && item.values.length > 0) {
-                    for (const oentry of item.values) {
-                        // Make any mocparams links
-                        if (oentry.mocparams) {
-                            for (const mp of oentry.mocparams) {
-                                hline += ` **[[${mp}]]**`;
+                if (itemA && itemA.length > 0) {
+                    for (const item of itemA) {
+                        // Make any params links
+                        if (item._params) {
+                            for (const paramA in item._params) {
+                                // TODO - NEED TO CHECK mocref status and make LINK appropriate TO THAT!
+                                for (const val of item._params[paramA]) {
+                                    hline += ` **[[${val}]]**`;
+                                }
                             }
                         }
-                        if (oentry.params) {
-                            for (const p of oentry.params) {
-                                hline += `  ${p}`;
+
+                        if (item._metameta) {
+                            for (const meta in item._metameta) {
+                                const dispmeta = this.pojo.displayMetaMeta(meta, item._metameta[meta]);
+                                hline += `  ${dispmeta}`;
                             }
                         }
+
                         md.push(hline);
                         hline = `> `;
-                        if (oentry.description) {
-                            for (const line of oentry.description) {
+                        if (item.Description) {
+                            for (const line of item.Description) {
                                 md.push(`> ${line}`);
                                 md.push("> ");
                             }
                         }
-
                     }
                 } else {
                     md.push(hline);
@@ -1937,7 +1856,7 @@ export class PojoConvert {
         }
 
         // Add all the callout sections.
-        //        console.log("HERE are sections", sections);
+
         // Add Photo Section first.
         if (sections.Photo) {
             this.addCalloutSection(md, "Photo", sections.Photo);
@@ -1947,6 +1866,7 @@ export class PojoConvert {
                 this.addCalloutSection(md, dbname, sections[dbname]);
             }
         }
+        this.pojo.logDebug("sections", sections, true);
         md.push("");
 
         // Add Foot Links (using Callout)
@@ -1982,7 +1902,7 @@ export class PojoConvert {
         return md;
     }
 
-    private addMarkdownCalloutSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
+    private addMarkdownCalloutSectionDEPRECATED (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
 
         //        console.warn("addMarkdownCalloutSection " + db, dbentry)
 
@@ -2050,9 +1970,9 @@ export class PojoConvert {
                 if (paramval) {
                     if (!newval) { newval = {}; }
                     if (param !== "Description") {
-                        const mocname = this.pojo.getFieldMOCName(dbinfo, type, param, paramval);
+                        const mocname = this.pojo.getFieldMOCNameDEPRECATED(dbinfo, type, param, paramval);
                         if (mocname) {
-                            this.pojo.logDebug("MOC for " + type + " " + param + "-> " + mocname);
+                            this.pojo.logDebug("getFieldMOCName returned for " + type + " " + param, mocname);
                             if (!newval.mocparams) { newval.mocparams = []; }
                             newval.mocparams = _addValue(mocname, newval.mocparams);
                         } else {
@@ -2073,6 +1993,93 @@ export class PojoConvert {
 
         this.pojo.logDebug("DA SECTION " + db, section);
     }
+
+    private addMarkdownCalloutSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
+
+        console.warn("addMarkdownCalloutSection " + db, dbentry)
+
+        let catchall = true;
+        for (const entry of dbentry) {
+            if (entry.Description) {
+                catchall = false;
+            }
+        }
+        if (this.settings.sections_verbose) {
+            catchall = false;
+        }
+
+        /** 
+         * Create a section for all entries of a database IF one or more of those entries has a description OR always
+         * if sections_verbose is true.
+         * Otherwise, put all entries of all databases with NO descriptions into a catch-all section.
+         **/
+        let section;
+        if (catchall) {
+            // No Description field for any of these entries for this database.
+            if (!sections[defcatch]) {
+                sections[defcatch] = {
+                    database: defcatch,
+                    content: {},
+                    callout: "Info"
+                };
+            }
+            section = sections[defcatch];
+        } else {
+            if (!sections[db]) {
+                sections[db] = {
+                    database: db,
+                    content: {},
+                    callout: db.toLowerCase()
+                };
+            }
+            section = sections[db];
+        }
+
+        const _addValue = function (val, a) {
+            // val can be an array or a string
+            if (Array.isArray(val)) {
+                a = [...a, ...val];
+            } else {
+                a = [...a, val];
+            }
+            // Remove duplicates
+            return [...new Set(a)];
+        }
+
+        for (const content of dbentry) {
+            const type = content[content["_typeparam"]];
+            if (!section.content[type]) {
+                section.content[type] = [];
+            }
+            const values = section.content[type];
+            let newval = null;
+            for (const param of content["_params"]) {
+                const paramval = content[param];
+                //                this.pojo.logDebug("addMarkdownCallout with " + param, paramval, true);
+                if (paramval) {
+                    if (!newval) { newval = {}; }
+                    if (param == "Description") {
+                        newval.Description = content[param];
+                    } else {
+                        const moclink = this.pojo.getMOCReferences(dbinfo, type, param, paramval);
+                        if (moclink) {
+                            console.log("MOCLINK ", moclink);
+                            // This field has a mocref status.
+                            if (!newval._params) { newval._params = {}; }
+                            newval._params[param] = moclink;
+                        } else if (this.pojo.getMetaMeta("name", param)) {
+                            if (!newval._metameta) { newval._metameta = {}; }
+                            newval._metameta[param] = paramval;
+                        }
+                    }
+                }
+            }
+            if (newval) { values.push(newval); }
+        }
+
+        this.pojo.logDebug("section creation " + db, section, true);
+    }
+
 
     private createNewRecords (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {
 
@@ -2108,20 +2115,9 @@ export class PojoConvert {
         // Add Daily Note YAML entry 
         const source = dbentry[this.defsec][0].Date;
 
-        const _getLocalDate = function (inputDate) {
-            const zdate = inputDate ? new Date(inputDate) : new Date();
-            const offset = zdate.getTimezoneOffset() * 60 * 1000;
-            const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
-            return new Date(zdatenum);
-        }
+        const newDate = this.pojo.getLocalDate(source);
 
-        const newDate = _getLocalDate(source);
-
-        //        console.log("DA DATE from " + source, newDate);
-        const dow = newDate.toLocaleDateString("en-US", {
-            weekday: "short"
-        })
-        frontmatter["Daily Note"] = newDate.toISOString().split('T')[0] + " " + dow;
+        frontmatter["Daily Note"] = this.pojo.getDailyNoteName(source);
 
         // Add always add to frontmatter from this.settings
         if (this.settings.frontmatter_always_add) {
@@ -2138,8 +2134,7 @@ export class PojoConvert {
                 const sr = af[0].split("/");
                 if (af[0] == "Date/Now") {
                     // Just add current date and time.
-                    const nowDate = new Date();
-                    frontmatter[af[2]] = nowDate.toDateString() + " " + nowDate.toLocaleTimeString();
+                    frontmatter[af[2]] = this.pojo.getNowDateString();
                 } else if (dbentry[sr[0]]) {
                     // NOTE we only do this for ONE entry of this database type.
                     const dbe = dbentry[sr[0]][0];
@@ -2421,6 +2416,7 @@ export class PojoConvert {
         const dailynoteref = dailynotefile.split(".")[0];
         console.log("writeOutMetadataRecords " + dailynoteref, newrecords);
         this.pojo.logDebug("writeOutMetadataRecords here... " + dailynotefile, newrecords);
+        const nowdatestr = self.pojo.getNowDateString();
 
 
         const _createNewMetadataRecord = async function (record: object, typename: string, rparams: string[]): void {
@@ -2430,6 +2426,8 @@ export class PojoConvert {
             md.push("Daily Note: " + dailynoteref);
             md.push("Database: " + record.Database);
             md.push("Date: " + record.Date);
+            md.push("Last Converted: " + nowdatestr);
+            md.push("POJO: " + self.settings.version_manifest);
             md.push(`Type: ${record[typename]}`);
             if (typename !== "Type") {
                 md.push(`${typename}: ${record[typename]}`);
@@ -2454,6 +2452,7 @@ export class PojoConvert {
             md.push("---");
             md.push("");
             md.push(record.Database + " " + record[typename] + " on " + record.Date);
+
             if (record.Description) {
                 md.push("");
                 for (const line of record.Description) {
