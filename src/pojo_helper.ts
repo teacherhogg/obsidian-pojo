@@ -267,7 +267,7 @@ export class PojoHelper {
         return foldername + "/" + filename;
     }
 
-    async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean) {
+    async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean): Promise<TFile> {
 
         // First check if folder exists in vault.
         if (!(await this.vault.adapter.exists(folder))) {
@@ -275,6 +275,7 @@ export class PojoHelper {
             await this.vault.adapter.mkdir(folder);
         }
 
+        let newfile: TFile = null;
         const filepath = generatePath(folder, filename);
         if (await this.vault.adapter.exists(filepath)) {
             if (bOverwrite) {
@@ -282,9 +283,11 @@ export class PojoHelper {
                 this.logDebug("OOO -> OVERRWORTE file " + filepath);
             }
         } else {
-            await this.vault.create(filepath, data);
+            newfile = await this.vault.create(filepath, data);
             this.logDebug("CCC -> Created file " + filepath);
         }
+
+        return newfile;
 
     }
 
@@ -775,10 +778,14 @@ export class PojoHelper {
         // mocref is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
         if (fldinfo.mocref == "moc" || fldinfo.mocref == "moc-type") {
             // moc is the default mocref and it's meaning depends on if it is a database, type, or other param.
-            console.log("moccheck? ")
+            console.log("moccheck? ", fldinfo);
             if (dbinfo.type == fieldname) {
                 // type
-                return fieldvalue.map((val) => `${dbinfo.database}_${val}`);
+                if (Array.isArray(fieldvalue)) {
+                    return fieldvalue.map((val) => `${dbinfo.database}_${val}`);
+                } else {
+                    return `${dbinfo.database}_${fieldvalue}`;
+                }
             } else {
                 if (!fieldvalue || (fieldvalue.length == 1 && !fieldvalue[0])) {
                     // NO actual value!

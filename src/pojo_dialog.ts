@@ -183,10 +183,17 @@ export class PojoZap extends Modal {
                 btn
                     .setButtonText("Timeline")
                     .onClick(async () => {
-                        console.log('Testing Timeline', self.pojo);
-                        const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
-                        const retobj = await timeline.createTimeline();
-                        console.log('Finished da test', retobj);
+                        if (self.settings.timelines && self.settings.timelines.enabled) {
+                            console.log('Testing Timeline', self.pojo);
+                            const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
+                            const retobj = await timeline.createTimeline();
+                            console.log('Finished da test', retobj);
+                        } else {
+                            const message = "Timeline support requires the timelines options to be set and enabled. Also, you must have the Obsidian Excalidraw plugin installed and enabled.";
+                            new InformationModal(
+                                self.app, "Timeline Not Available", message
+                            ).open();
+                        }
                     })
             )
 
@@ -333,9 +340,14 @@ export class PojoZap extends Modal {
         };
 
         let lastmsg;
+        let bTimeline = false;
+        if (self.settings.timelines && self.settings.timelines.enabled) {
+            bTimeline = true;
+        }
         for (const dfile of dailyFiles) {
             self.pojo.errorStack(true);
-            const retval = await convert.convertDailyNote(dfile, databases, suggestedTags, imageactions, bConvertAgain, bConvertAllNotes);
+
+            const retval = await convert.convertDailyNote(dfile, databases, suggestedTags, imageactions, bTimeline, bConvertAgain, bConvertAllNotes);
             lastmsg = retval.msg;
 
             nDone++;
@@ -372,6 +384,14 @@ export class PojoZap extends Modal {
                 } else {
                     returnObject.success[filename] = { type: retval.type };
                     nSuccess++;
+                }
+
+                // If converted succesfully, also create timeline (if enabled)
+                if (bTimeline) {
+                    console.log('Testing Timeline', self.pojo);
+                    const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
+                    const retobj = await timeline.createTimeline(retval.new_note, retval.timeline_file);
+                    console.log('Finished da test', retobj);
                 }
             }
 

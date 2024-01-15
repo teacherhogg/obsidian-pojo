@@ -1,20 +1,11 @@
 [[ 
-ERROR missing database info in pojo settings
-0: 0
-1: 1
-2: 2
-3: 3
-4: 4
-5: 5
-6: 6
- ]]
-[[ 
-ERROR missing database info in pojo settings
-0: 0
-1: 1
-2: 2
-3: 3
-4: 4
-5: 5
-6: 6
+ERROR caught on markdownexport
+image is not defined
+Call Stack => 
+ReferenceError: image is not defined
+    at PojoConvert.addFrontMatterForEntry (plugin:obsidian-pojo:19755:60)
+    at PojoConvert.convertDailyNote (plugin:obsidian-pojo:18387:12)
+    at async PojoZap.convertDailyNotes (plugin:obsidian-pojo:20975:22)
+    at async eval (plugin:obsidian-pojo:20835:28)
+    at async eval (plugin:obsidian-pojo:21420:9)
  ]]

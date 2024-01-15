@@ -1,7 +1,7 @@
 import { Vault, TFile, App, Notice, MarkdownView } from "obsidian";
 import { getEA } from "obsidian-excalidraw-plugin";
 import { ExcalidrawAutomate } from 'obsidian-excalidraw-plugin/lib/ExcalidrawAutomate';
-import { PojoSettings } from "./settings";
+import { PojoSettings, generatePath } from "./settings";
 import { WarningPrompt } from './utils/Prompts';
 import { errorlog } from './utils/utils';
 
@@ -25,6 +25,9 @@ export class PojoTimeline {
     private scale;
     private mindur;
     private lasty;
+    private maxL;
+    private maxR;
+
     // Width for time on col1
     private timewidth;
     // Width for col0, col1, and col2
@@ -32,40 +35,74 @@ export class PojoTimeline {
     // Boxwidth in col1 (colwidth - timewidth)
     private boxwidth;
 
+    private defwidth;
+    private defheight;
+    private minwidth;
+    private labelspace;
+    private bEventOrder;
+    private RLabelArray;
+    private LLabelArray;
+    private disabled;
+    private subfolder_timelines;
+
     constructor(settings: PojoSettings, pojo: object, vault: Vault, app: App) {
+        const self = this;
         this.settings = settings;
         this.pojo = pojo
         this.vault = vault;
         this.app = app;
-        this.scale = 1;
-        this.mindur = 40;
+        this.RLabelArray = [];
+        this.LLabelArray = [];
+        this.disabled = false;
 
         // https://zsviczian.github.io/obsidian-excalidraw-plugin/
         // NOTE that y direction is vertical and y positive is down.
         // NOTE that x direction is horizontal and x positive to right.
         // NOTE three columns: col0, col1, col2
         // NOTE that x=0 is the left side of col1 
-        this.timewidth = 75;
+
+        // Setup Options
+        const _setSetting = function (key) {
+            if (self.settings?.timelines.hasOwnProperty(key)) {
+                return self.settings.timelines[key];
+            } else {
+                warning(self.app, key + "not found.", "timelines options not complete");
+                self.disabled = true;
+                return null;
+            }
+        }
+
+        if (!this.settings.timelines || !this.settings.timelines.enabled) {
+            warning(self.app, "timelines settings invalid", "timelines settings not available or disabled.");
+            self.disabled = true;
+            return null;
+        } else {
+            this.timewidth = _setSetting("timewidth");
+            this.mindur = _setSetting("min_duration");
+            this.defwidth = _setSetting("default_width");
+            this.minwidth = _setSetting("min_width");
+            this.labelspace = _setSetting("labelspace");
+            this.subfolder_timelines = _setSetting("subfolder_timelines");
+            this.bEventOrder = _setSetting("event_order");
+            const daystart = _setSetting("daystart");
+            this.zeroy = this._getMins(daystart);
+        }
+        this.scale = 1;
         this.colwidth = 500;
+        this.defheight = 35;
         this.boxwidth = this.colwidth - this.timewidth;
 
         // TODO - move these to POJO settings.
-        this.zeroy = this._getMins("5:00");
         this.dbasesAdd = ["Places", "Night"];
         this.dbIgnore = ["Photo", "Tasks"];
-        this.lasty = { col0: this.zeroy, col1: this.zeroy, col2: this.zeroy, colt: this.zeroy };
 
+        this.lasty = this.zeroy;
+        this.maxL = this.zeroy;
+        this.maxR = this.zeroy;
 
         this.EA = getEA();
         if (!this.EA) {
-            (new WarningPrompt(
-                this.app,
-                "⚠ Excalidraw Plugin not found",
-                "EXCALIDRAW_NOT_FOUND")
-            ).show(async (result: boolean) => {
-                new Notice("Excalidraw plugin not found.", 8000);
-                errorlog({ fn: "constructor", where: "pojo_timeline.ts/PojoTimeline", message: "Excalidraw not found" });
-            });
+            warning(self.app, "EXCALIDRAW_NOT_FOUND", "⚠ Excalidraw Plugin not found");
             return;
         } else {
             console.log("HERE IS the EA eh?", this.EA);
@@ -81,103 +118,298 @@ export class PojoTimeline {
         }
         this.EA.reset();
         this.EA.addText(0, 0, "HERE DA TEST TEXT");
+        const id = this.EA.addText(20, 20, "HERE DA TEST TEXT 2");
+        const ell = this.EA.getElement(id);
+        ell.isDeleted = true;
         this.EA.create({ onNewPane: true });
 
         return true;
     }
 
-    async createTimeline () {
+    async createTimeline (notefile: TFile, timeline_file: string) {
 
-        const retobj = this._getEvents();
+        if (this.disabled) {
+            console.error("Timeline creation disabled.");
+            return;
+        }
+
+        const finfo = this._getNoteInfo(notefile);
+        if (!finfo || !finfo.success) {
+            return finfo;
+        }
+
+        // Get events sorted in time
+        const retobj = this._getEvents(finfo.frontmatter.metainfo);
         if (!retobj || !retobj.success || !retobj.events) {
             return retobj;
         }
 
+        // Split events into arrays that don't overlap in time
+        const eventobj = this._eventCollisions(retobj.events);
+        console.log("HERE are event arrays", eventobj);
+
+        // Now determine the width and locations of all events
+        const allcolw = this._eventWidths(this.defwidth, this.minwidth, eventobj)
+
         this.EA.reset();
         // Draw the timeline
         for (let h = 0; h < 24; h++) {
-            this._drawTime(h);
+            this._drawTime(this.timewidth, allcolw, h);
         }
-        for (const event of retobj.events) {
-            this._drawEvent(event);
+        for (const eArray of eventobj.eArrays) {
+            for (const event of eArray) {
+                this._drawEvent(allcolw, event);
+            }
         }
-        this.EA.create({ onNewPane: true });
+
+        for (const event of eventobj.eNoDuration) {
+            this._drawEvent(allcolw, event);
+        }
+
+        // Add Header info
+        await this._drawHeader(allcolw, finfo.frontmatter);
+
+        // Add Any Photos
+        if (finfo.frontmatter && finfo.frontmatter.metainfo) {
+            await this._drawPhotos(allcolw, finfo.frontmatter.metainfo)
+        }
+
+        let filename;
+        if (!timeline_file) {
+            if (finfo.frontmatter["Diary Date"]) {
+                filename = finfo.frontmatter["Diary Date"] + " timeline";
+            }
+        } else {
+            filename = timeline_file;
+        }
+
+        if (filename) {
+            const folder = generatePath(this.settings.folder_pojo, this.subfolder_timelines);
+            const eaoptions = {
+                filename: filename,
+                foldername: folder,
+                onNewPane: true
+            }
+            this.EA.create(eaoptions);
+        } else {
+            this.EA.create({ onNewPane: true });
+        }
 
     }
 
-    private _drawEvent (event) {
+    private _setStyle (stype) {
+        if (stype == "header") {
+
+            const strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
+            this.EA.style.roughness = 2; // 0, 1, 2
+            this.EA.style.strokeColor = strokeColor;
+            this.EA.style.strokeWidth = 2;
+            this.EA.setFillStyle(0); // 0,1,2
+            this.EA.setStrokeStyle(0); // 0,1,2
+            this.EA.setStrokeSharpness(0); // 0,1
+            this.EA.style.fontSize = 48;
+            this.EA.setFontFamily(0);  // 0, 1, 2
+        } else {
+            const strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
+            this.EA.style.roughness = 1; // 0, 1, 2
+            this.EA.style.strokeColor = strokeColor;
+            this.EA.style.strokeWidth = 2;
+            this.EA.style.fontSize = 20;
+        }
+    }
+
+    private async _drawPhotos (allcolw, metainfo: object) {
+        const self = this;
+
+        this._setStyle("default");
+
+        // Include any photos!
+        let yLeft = this.maxL + this.defheight;
+        let yRight = this.maxR + this.defheight;
+        let bPlaceLeft = true;
+
+        if (metainfo && metainfo.Photo) {
+
+            for (const photo of metainfo.Photo) {
+                if (photo.image) {
+                    let x = allcolw;
+                    let y = yRight;
+                    if (bPlaceLeft) {
+                        x = -allcolw;
+                        y = yLeft;
+                    }
+
+                    const captions = photo[photo.Type];
+                    if (captions && captions.length > 0) {
+                        const caption = captions.join(" ");
+                        this.EA.addText(x, y, caption);
+                        y += this.defheight;
+                    }
+
+                    const ipath = generatePath(this.settings.folder_attachments, photo.image);
+                    const iFile = this.vault.getAbstractFileByPath(ipath) as TFile;
+                    console.log("HERE IS THE IMAGE", iFile, ipath);
+                    const idimage = await this.EA.addImage(x, y, iFile, true, true);
+
+                    const elinfo = this.EA.getElement(idimage);
+                    console.log("IMAGE ELEMENT INFO ", elinfo);
+
+                    if (bPlaceLeft) {
+                        yLeft = elinfo.height + y;
+                    } else {
+                        yRight = elinfo.height + y;
+                    }
+                    bPlaceLeft = !bPlaceLeft;
+                }
+            }
+        }
+    }
+
+    private async _drawHeader (allcolw, fm: object) {
+        const self = this;
+
+        this._setStyle("header");
+
+        const x = 0;
+        let y = this.zeroy - this.defheight;
+        const __setHeadText = function (prop, text) {
+            const msg = prop ? prop + ": " + text : text;
+            self.EA.addText(x, y, msg);
+            y -= self.defheight;
+        }
+        if (fm["Daily Note"]) { __setHeadText(null, fm["Daily Note"]); }
+        //        if (fm["ISODave"]) { __setHeadText("ISODave", fm["ISODave"]); }
+        //        if (fm["Last Converted"]) { __setHeadText("Last Converted", fm["Last Converted"]); }
+
+        this._setStyle("default");
+    }
+
+    private _drawLabelL (event) {
+        // Add label to left of timeline
+        let idlabel;
+        let bPlaceLabel = true;
+        while (bPlaceLabel) {
+            idlabel = this.EA.addText(
+                event.x,
+                event.y,
+                event.txt,
+                { box: false, width: event.width, boxPadding: 0, textAlign: "left" }
+            );
+            const ell = this.EA.getElement(idlabel);
+            const labelinfo = {
+                dur: ell.height,
+                start: ell.y,
+                width: ell.width,
+                end: ell.y + ell.height,
+                x: ell.x
+            };
+            if (this._checkEventCollision(labelinfo, this.LLabelArray)) {
+                // This label location collides. Try again.
+                event.y += 25;
+                ell.isDeleted = true;
+            } else {
+                if (labelinfo.end > this.maxL) { this.maxL = labelinfo.end; }
+                this.LLabelArray.push(labelinfo);
+                bPlaceLabel = false;
+            }
+        }
+
+        return idlabel;
+    }
+
+    private _drawLabelR (allcolw, txt, y) {
+        // Add label to right of timeline
+        let ylabel = y;
+        const len = txt.length;
+        const textwidth = Math.min(this.boxwidth, len * 10);
+        let idlabel;
+        let bPlaceLabel = true;
+        while (bPlaceLabel) {
+            idlabel = this.EA.addText(this.labelspace + allcolw, ylabel - this.defheight * 0.5, txt, { box: false, width: textwidth });
+            const ell = this.EA.getElement(idlabel);
+            const labelinfo = {
+                dur: ell.height,
+                start: ell.y,
+                width: ell.width,
+                end: ell.y + ell.height,
+                x: ell.x
+            };
+            if (this._checkEventCollision(labelinfo, this.RLabelArray)) {
+                // This label location collides. Try again.
+                ylabel += 25;
+                ell.isDeleted = true;
+            } else {
+                if (labelinfo.end > this.maxR) { this.maxR = labelinfo.end; }
+                this.RLabelArray.push(labelinfo);
+                bPlaceLabel = false;
+            }
+        }
+
+        return idlabel;
+    }
+
+    private _drawEvent (allcolw, event) {
 
         const strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
 
+        this.EA.style.roughness = 1; // 0, 1, 2
         this.EA.style.strokeColor = strokeColor;
         this.EA.style.strokeWidth = 2;
 
-        let width = this.boxwidth;
-        const bottom = event.start + event.dur;
-        let duration = event.hasOwnProperty("dur") ? event.dur : 0;
-        let x;
-        let ystart = event.start;
-        let txt = event.txt;
-        const align = "left";
-        let drawBox = true;
-        let idlabel;
+        const duration = event.hasOwnProperty("dur") ? event.dur : 0;
+
         if (event.start == 0) {
-            // Event has no start time. Place this in colt
-            x = 0;
-            ystart = this.lasty.colt;
-            duration = this.mindur * this.scale;
-            this.lasty.colt = ystart - duration;
-            drawBox = false;
-        } else if (event.start < this.lasty.col0) {
-            // Switch to col0
-            x = -this.boxwidth - this.timewidth;
-            this.lasty.col0 = bottom;
+            // Event has no start time. 
+            this._drawLabelL(event);
         } else {
-            // Placing box in col1
-            x = this.timewidth;
-            this.lasty.col1 = bottom;
-            if (duration < this.mindur * this.scale) {
-                // Placing Label in col0
-                txt = "";
-                const len = event.txt.length;
-                width = Math.min(this.boxwidth, len * 10);
-                idlabel = this.EA.addText(-this.timewidth - this.boxwidth, ystart, event.txt, { box: false, width: width });
-                const ell = this.EA.getElement(idlabel);
-                //	    	console.log("HERE DA LABEL", ell);
-                this.lasty.col0 = ystart + ell.height;
-            }
-        }
-
-        // let txt = "( " + event.y + " to " + bottom + " )";
-
-        let id = null;
-        if (ystart) {
             if (!duration) {
-                // Add just a line
-                this.EA.style.strokeColor = "#000000";
-                this.EA.style.strokeWidth = 10;
-                id = this.EA.addLine([[x, ystart], [x + width, ystart]]);
-                console.log("ADDED A LINE ", id, idlabel);
-            } else {
-                id = this.EA.addText(x, ystart, txt, { box: drawBox, height: duration, width: width, boxPadding: 0, textAlign: align });
-            }
-        }
-        this.EA.style.strokeWidth = 2;
-        this.EA.style.strokeColor = strokeColor;
-        if (id && idlabel) {
-            if (!duration) {
+                // Event has a time but no duration.
+
+                // Draw a line across all columns
+                this.EA.style.strokeColor = "#00008B";
+                this.EA.style.strokeWidth = 3;
+                const id = this.EA.addLine([[0, event.start], [allcolw, event.start]]);
+
+                // Draw a label
+                const idlabel = this._drawLabelR(allcolw, event.txt, event.start);
+
+
+                // Draw an arrow connecting label and line
                 const elLabel = this.EA.getElement(idlabel);
                 const elLine = this.EA.getElement(id)
-                console.log("HERE LABEL AND LINE", elLabel, elLine);
-                this.EA.addArrow([[elLabel.x + elLabel.width, elLabel.y + elLabel.height * 0.5], [elLine.x, elLine.y]], { endArrowHead: "arrow" });
+                this.EA.addArrow([[elLabel.x, elLabel.y], [elLine.x + allcolw, elLine.y]], { endArrowHead: "arrow" });
+
             } else {
-                this.EA.connectObjects(idlabel, "right", id, "left", { endArrowHead: "arrow" });
+                // Standard event that has start time and duration. 
+                const align = "left";
+                let id = null;
+                if (event.dur < this.mindur) {
+                    // NOT enough room to add text to box
+
+                    // Draw box without text
+                    id = this.EA.addText(event.x, event.start, "", { box: true, height: event.dur, width: event.width, boxPadding: 0, textAlign: align });
+
+                    // Add label to right of timeline
+                    const idlabel = this._drawLabelR(allcolw, event.txt, event.start);
+
+                    // Add Connection for label and box
+                    this.EA.connectObjects(idlabel, "left", id, "right", { endArrowHead: "arrow" });
+
+                } else {
+                    // Just draw box with text in col1
+                    id = this.EA.addText(event.x, event.start, event.txt, { box: true, height: event.dur, width: event.width, boxPadding: 0, textAlign: align });
+                    //                    const ell = this.EA.getElement(id);
+                    //                    const bb = this.EA.getBoundingBox([ell]);
+                    //                    if (ell.height > event.dur) {
+                    //                    console.log("OMG - Size then expected " + event.dur + " -> " + ell.height + "[ " + event.txt + " ]", event, bb);
+                    //                    }
+                }
+                //                this._drawBoxAndLabel(allcolw, event);
             }
         }
-        return id;
     }
 
-    private _drawTime (hr) {
+    private _drawTime (timew, allcolw, hr) {
         let ht;
         if (hr < 12) {
             ht = hr + " am";
@@ -189,20 +421,189 @@ export class PojoTimeline {
         }
 
         const ymins = hr * 60;
-        const xend = this.colwidth;
         if (ymins > this.zeroy) {
-            this.EA.addLine([[0, ymins * this.scale], [xend, ymins * this.scale]]);
-            this.EA.addText(0, ymins * this.scale, ht);
+            this.EA.addLine([[-timew, ymins * this.scale], [allcolw, ymins * this.scale]]);
+            this.EA.addText(-timew, ymins * this.scale, ht);
         }
     }
 
-    private _getEvents (): object {
 
+    private _eventWidths (defw, minw, eventobj) {
+
+        const nCols = eventobj.eArrays.length;
+        let colw = defw;
+        if (nCols) {
+            colw = Math.max(minw, defw / nCols);
+        }
+        const allcolw = colw * nCols;
+
+
+        // Get width and x of events in eArrays
+        for (let n = 0; n < nCols; n++) {
+            const eArray = eventobj.eArrays[n];
+            for (let j = 0; j < eArray.length; j++) {
+                const event = eArray[j];
+
+                let lenr = 0;
+                let lenl = 0;
+
+                // Check for collisions to right (if not in last array)
+                if (n !== nCols - 1) {
+                    for (let r = n + 1; r < nCols; r++) {
+                        if (!this._checkEventCollision(event, eventobj.eArrays[r])) {
+                            lenr++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                // Check for collisions to left (if not in first array)
+                if (n !== 0) {
+                    for (let r = n - 1; r > 0; r--) {
+                        if (!this._checkEventCollision(event, eventobj.eArrays[r])) {
+                            lenl++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                if (lenr > lenl) {
+                    // Span to the right
+                    event.x = n * colw;
+                    event.width = lenr * colw;
+                } else if (lenl > lenr) {
+                    // Span to the left
+                    event.x = (n - lenl) * colw;
+                    event.width = lenl * colw;
+                } else {
+                    // No span
+                    event.x = n * colw;
+                    event.width = colw;
+                }
+            }
+        }
+
+        // Get width and x of events without duration
+        for (const event of eventobj.eNoDuration) {
+            if (!event.start) {
+                // Event with no start time and no duration
+                // Base the y location on the order of the event in original array.
+                event.x = -this.defwidth - this.labelspace;
+                event.width = this.defwidth;
+                if (this.bEventOrder) {
+                    let pos = eventobj.eOrder.min;
+                    let ypos = this.zeroy;
+                    let delta = eventobj.eOrder.max;
+                    while (pos <= eventobj.eOrder.max) {
+                        const yval = eventobj.eOrder.dict[pos];
+                        if (yval) {
+                            const tdelta = Math.abs(event.order - pos);
+                            if (tdelta < delta) {
+                                delta = tdelta;
+                                ypos = yval;
+                            }
+                        }
+                        pos++;
+                    }
+                    event.y = ypos;
+                } else {
+                    // Event with no duration, no start time, and we are NOT using the event order.
+                    event.y = this.lasty;
+                    this.lasty = event.y + this.mindur;
+                }
+            }
+        }
+
+        return allcolw;
+    }
+
+    private _checkEventCollision (event, eArray) {
+
+        const __eventCollision = function (evt1: object, evt2: object): boolean {
+            if (evt2.start > evt1.start) {
+                if (evt2.start < evt1.end) { return true; }
+            } else {
+                if (evt1.start < evt2.end) { return true; }
+            }
+            return false;
+        }
+
+        let bCollision = false;
+        for (let j = 0; j < eArray.length; j++) {
+            if (__eventCollision(event, eArray[j])) {
+                bCollision = true;
+                break;
+            }
+        }
+
+        return bCollision;
+    }
+
+    private _eventCollisions (events): object {
+
+        // Now check for events that overlap in time or have no duration
+        const eNoDuration = [];
+        const eArrays = [[]];
+        const nevents = events.length;
+        const eOrder = { dict: {} };
+        for (let n = 0; n < nevents; n++) {
+            const event = events[n];
+            if (event.start) {
+                if (!eOrder.hasOwnProperty("min")) {
+                    eOrder.min = event.order;
+                    eOrder.max = event.order;
+                }
+                eOrder.dict[event.order] = event.start;
+                if (event.order < eOrder.min) { eOrder.min = event.order; }
+                if (event.order > eOrder.max) { eOrder.max = event.order; }
+            }
+            if (!event.hasOwnProperty("dur") || !event.dur) {
+                // Event with no duration. 
+                eNoDuration.push(event);
+            } else {
+                for (let a = 0; a < eArrays.length; a++) {
+                    // Check if events collide in this event array.
+                    const bCollision = this._checkEventCollision(event, eArrays[a]);
+
+                    if (bCollision) {
+                        if (a == eArrays.length - 1) {
+                            // Create new event array and put this event there.
+                            eArrays.push([event]);
+                            break;
+                        }
+                    } else if (!bCollision) {
+                        // Put event in this event array
+                        eArrays[a].push(event);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return { eNoDuration, eArrays, eOrder };
+    }
+
+    /**
+     * Creates an array of event objects that are sorted in time.
+     */
+    private _getNoteInfo (notefile: TFile): object {
+
+        /*
         //check if an editor is the active view
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view) {
+            warning(this.app, "Daily Note not active", "Daily Note must be currently selected. NO view selected.");
+            return {
+                success: false,
+                error: "ERROR_NO_VIEW_EDITOR"
+            };
+        }
+
         console.log("Active view", view);
         if (!view.editor) {
-            console.error("DUDE NO...");
+            warning(this.app, "Daily Note not active", "Daily Note must be currently selected. NO Editor available.");
             return {
                 success: false,
                 error: "ERROR_NO_VIEW"
@@ -211,13 +612,19 @@ export class PojoTimeline {
 
         const linecount = view.editor.lineCount();
         console.log("HERE IS LIJNE COUNE=T", linecount);
-
-        const file = this.app.workspace.getActiveFile();
-        console.log("Active file", file);
+*/
+        let file: TFile;
+        if (notefile) {
+            file = notefile;
+        } else {
+            file = this.app.workspace.getActiveFile();
+        }
+        console.log("file for timeline", file);
         const finfo = this.app.metadataCache.getFileCache(file);
         console.log("HERE is finfo", finfo);
         if (!finfo || !finfo.frontmatter || !finfo.frontmatter.metainfo) {
-            const msg = "Cannot create timeline for active file: " + file.name;
+            const msg = "Cannot create timeline for active file: " + file.name + " . Must be a processed Daily Note!";
+            warning(this.app, "Cannot create timeline.", msg);
             new Notice(msg, 8000);
             errorlog({ fn: this._getEvents, where: "pojo_timeline.ts/PojoTimeline", message: msg });
             return {
@@ -226,14 +633,20 @@ export class PojoTimeline {
                 message: msg
             }
         }
-        const metainfo = finfo.frontmatter.metainfo;
-        console.log("METAINFO is ", metainfo);
+        //        const metainfo = finfo.frontmatter.metainfo;
+        //        console.log("METAINFO is ", metainfo);
 
-        console.log("zeroy is " + this.zeroy);
-        console.log("SCALE is ", this.scale);
+        return {
+            success: true,
+            frontmatter: finfo.frontmatter
+        }
+    }
+
+    private _getEvents (metainfo: object): object {
 
         const events = [];
         const debug = true;
+        let n = 1;
         for (const db in metainfo) {
             // Skip databases in ignore.
             if (this.dbIgnore.includes(db)) { continue; }
@@ -241,7 +654,7 @@ export class PojoTimeline {
             for (const dbi of dbe) {
                 const tinfo = this._getTimeInfo(dbi);
                 const txt = this._getText(db, dbi);
-                console.log(db + ": " + txt, tinfo);
+                //                console.log(db + ": " + txt, tinfo);
                 let y = tinfo.start * this.scale;
                 let dur = tinfo.dur * this.scale;
                 if (isNaN(y)) { y = 0; }
@@ -249,7 +662,8 @@ export class PojoTimeline {
 
                 const event = {
                     "start": y,
-                    "txt": txt
+                    "txt": txt,
+                    "order": n
                 };
                 if (dur) {
                     event.dur = dur;
@@ -257,37 +671,17 @@ export class PojoTimeline {
                 }
 
                 events.push(event);
+                n++;
             }
         }
 
         // Sort events by y value
         events.sort((a, b) => a.start - b.start);
-        //        console.log("HERE is events", events);
-
-        const newevents = events.map((el, idx, ea) => {
-            const newel = el;
-            if (!el.hasOwnProperty("overlaps")) {
-                newel.overlaps = 0;
-            }
-            if (idx + 1 < ea.length) {
-                for (let i = idx + 1; i < ea.length; i++) {
-                    const cel = ea[i];
-                    if (cel.start < el.end) {
-                        if (!cel.hasOwnProperty("overlaps")) { cel.overlaps = 0; }
-                        cel.overlaps++;
-                        newel.overlaps++;
-                    }
-                }
-            }
-
-            return newel;
-        })
-
-        console.log("HERE is newevents", newevents);
+        console.log("HERE is events", events);
 
         return {
             success: true,
-            events: newevents
+            events: events
         }
     }
 
@@ -331,4 +725,13 @@ export class PojoTimeline {
         return tinfo;
     }
 
+}
+
+const warning = function (app, title, message) {
+    (new WarningPrompt(
+        app, title, message)
+    ).show(async (result: boolean) => {
+        new Notice(message, 8000);
+        console.error(title + " -> " + message);
+    });
 }

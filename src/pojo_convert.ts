@@ -473,7 +473,7 @@ export class PojoConvert {
         return {};
     }
 
-    async convertDailyNote (inputFile: TFile, databases: string[], suggestedTags: object[], imageactions: object, convertAgain: boolean, convertTry: boolean): Promise<object> {
+    async convertDailyNote (inputFile: TFile, databases: string[], suggestedTags: object[], imageactions: object, timeLine: boolean, convertAgain: boolean, convertTry: boolean): Promise<object> {
 
 
         // We are converting a daily note AGAIN if convertAgain is ture
@@ -652,6 +652,8 @@ export class PojoConvert {
         const sections = {};
         const footlinks = [];
         let dailynotefile = null;
+        let newnote: TFile = null;
+        let timeline_file = null;
         try {
 
             // Add frontmatter
@@ -708,11 +710,14 @@ export class PojoConvert {
             }
 
             dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
-            const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions);
+            if (timeLine) {
+                timeline_file = frontmatter["Daily Note"] + " timeline";
+            }
+            const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions, timeline_file);
 
             // Output the new Daily Note file.
             const mdcontent = md.join("\n");
-            await this.pojo.createVaultFile(mdcontent, this.settings.folder_daily_notes, dailynotefile, true);
+            newnote = await this.pojo.createVaultFile(mdcontent, this.settings.folder_daily_notes, dailynotefile, true);
 
         } catch (err) {
             this.pojo.logError("ERROR caught on markdownexport", err);
@@ -745,6 +750,8 @@ export class PojoConvert {
 
         return {
             "type": "success",
+            "new_note": newnote,
+            "timeline_file": timeline_file,
             "msg": "Daily Note converted successfully."
         }
     }
@@ -1800,7 +1807,7 @@ export class PojoConvert {
         return true;
     }
 
-    private createNewDailyNoteMarkdown (dailynotefile: string, frontmatter: object, dailyentry: object, sections: object, footlinks: string[], imageactions: object) {
+    private createNewDailyNoteMarkdown (dailynotefile: string, frontmatter: object, dailyentry: object, sections: object, footlinks: string[], imageactions: object, timeline_file: string) {
 
         // Create the markdown for the note
         const md = [];
@@ -1818,6 +1825,12 @@ export class PojoConvert {
             for (const aline of this.settings.daily_note_add_top) {
                 md.push(aline);
             }
+        }
+
+        console.log("Adding timeline file? " + timeline_file);
+        if (timeline_file) {
+            md.push("\n");
+            md.push(`[[${timeline_file}]]`);
         }
 
         // Output the Daily Entry
@@ -2248,6 +2261,7 @@ export class PojoConvert {
         // Add reference to all used databases and collect what metadata is used in note
         const dbs = [];
         const dbesummary = {};
+        console.log("METASETUP ", dbentry);
         for (const db in dbentry) {
             if (db !== this.defsec) {
                 if (this.settings.databases_no_callouts && this.settings.databases_no_callouts.includes(db)) {
@@ -2262,8 +2276,22 @@ export class PojoConvert {
                         const sume = {};
                         for (const mekey in me) {
                             // Save all keys not starting with _ and exclude Description
-                            if (mekey.charAt(0) !== "_" && mekey !== "Description") {
-                                sume[mekey] = me[mekey];
+                            if (mekey.charAt(0) !== "_") {
+                                if (mekey == "Description") {
+                                    if (db == "Photo") {
+                                        // Special case - extract image attachment from description
+                                        const regex = /\[\[(.*?)\]\]/;
+                                        const fval = me[mekey];
+                                        console.log("HERE IS FVAL " + fval);
+                                        const imagea = fval[0].match(regex);
+                                        if (imagea && imagea.length > 0) {
+                                            sume.image = imagea[imagea.length - 1];
+                                        }
+                                        console.log("PHOTO PHOTO ", me[mekey], sume.image);
+                                    }
+                                } else {
+                                    sume[mekey] = me[mekey];
+                                }
                             }
                         }
                         dbesummary[db].push(sume);

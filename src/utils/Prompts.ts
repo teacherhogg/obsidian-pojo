@@ -37,13 +37,14 @@ export class WarningPrompt extends Modal {
                 this.close();
             };
 
-            const bCancel = el.createEl("button", {
-                text: "Cancel",
-            });
-            bCancel.onclick = () => {
-                this.resolve(false);
-                this.close();
-            };
+            /*            const bCancel = el.createEl("button", {
+                            text: "Cancel",
+                        });
+                        bCancel.onclick = () => {
+                            this.resolve(false);
+                            this.close();
+                        };
+            */
         });
     }
 
