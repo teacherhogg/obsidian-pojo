@@ -1,6 +1,6 @@
 {
     "name": "obsidian-pojo",
-    "version": "0.6.1",
+    "version": "0.7.0",
     "description": "Power Obsidian Journaling (POJO), a journaling plugin that creates structured and unstructured data and plays nicely with other plugins such as Daily Notes, Datacore, and more.",
     "main": "main.js",
     "scripts": {

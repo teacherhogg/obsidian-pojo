@@ -4,6 +4,7 @@ import { ExcalidrawAutomate } from 'obsidian-excalidraw-plugin/lib/ExcalidrawAut
 import { PojoSettings, generatePath } from "./settings";
 import { WarningPrompt } from './utils/Prompts';
 import { errorlog } from './utils/utils';
+import * as path from "path";
 
 
 declare global {
@@ -126,20 +127,20 @@ export class PojoTimeline {
         return true;
     }
 
-    async createTimeline (notefile: TFile, timeline_file: string) {
+    async createTimeline (note_file: string, timeline_file: string, fileinfo: object, dailyentry: object) {
 
         if (this.disabled) {
             console.error("Timeline creation disabled.");
             return;
         }
 
-        const finfo = this._getNoteInfo(notefile);
+        const finfo = await this._getNoteInfo(note_file, fileinfo);
         if (!finfo || !finfo.success) {
             return finfo;
         }
 
         // Get events sorted in time
-        const retobj = this._getEvents(finfo.frontmatter.metainfo);
+        const retobj = this._getEvents(finfo.metainfo);
         if (!retobj || !retobj.success || !retobj.events) {
             return retobj;
         }
@@ -153,8 +154,10 @@ export class PojoTimeline {
 
         this.EA.reset();
         // Draw the timeline
+        let yMax = this.zeroy;
         for (let h = 0; h < 24; h++) {
-            this._drawTime(this.timewidth, allcolw, h);
+            const yVal = this._drawTime(this.timewidth, allcolw, h);
+            if (yVal > yMax) { yMax = yVal; }
         }
         for (const eArray of eventobj.eArrays) {
             for (const event of eArray) {
@@ -167,11 +170,26 @@ export class PojoTimeline {
         }
 
         // Add Header info
-        await this._drawHeader(allcolw, finfo.frontmatter);
+        const header = [];
+        if (finfo.frontmatter && finfo.frontmatter["Daily Note"]) { header.push(finfo.frontmatter["Daily Note"]); }
+        if (dailyentry && dailyentry.Heading) { header.push(dailyentry.Heading) }
+        if (note_file) {
+            const pinfo = path.parse(note_file);
+            console.log("PINFO is ", pinfo)
+            header.push(`[[${pinfo.base}]]`)
+        }
+
+        await this._drawHeader(allcolw, header);
+
+        // Add Daily Entry
+        console.log("HERE is dailyentry", dailyentry)
+        if (dailyentry) {
+            this._drawDiaryEntry(allcolw, dailyentry, yMax);
+        }
 
         // Add Any Photos
-        if (finfo.frontmatter && finfo.frontmatter.metainfo) {
-            await this._drawPhotos(allcolw, finfo.frontmatter.metainfo)
+        if (finfo.frontmatter && finfo.metainfo) {
+            await this._drawPhotos(allcolw, finfo.metainfo, yMax);
         }
 
         let filename;
@@ -198,8 +216,8 @@ export class PojoTimeline {
     }
 
     private _setStyle (stype) {
-        if (stype == "header") {
 
+        if (stype == "header") {
             const strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
             this.EA.style.roughness = 2; // 0, 1, 2
             this.EA.style.strokeColor = strokeColor;
@@ -208,6 +226,26 @@ export class PojoTimeline {
             this.EA.setStrokeStyle(0); // 0,1,2
             this.EA.setStrokeSharpness(0); // 0,1
             this.EA.style.fontSize = 48;
+            this.EA.setFontFamily(0);  // 0, 1, 2
+        } else if (stype == "body") {
+            const strokeColor = '#000000';
+            this.EA.style.roughness = 2; // 0, 1, 2
+            this.EA.style.strokeColor = strokeColor;
+            this.EA.style.strokeWidth = 2;
+            this.EA.setFillStyle(0); // 0,1,2
+            this.EA.setStrokeStyle(0); // 0,1,2
+            this.EA.setStrokeSharpness(1); // 0,1
+            this.EA.style.fontSize = 24;
+            this.EA.setFontFamily(0);  // 0, 1, 2
+        } else if (stype == "right" || stype == "left") {
+            const strokeColor = '#080808';
+            this.EA.style.roughness = 2; // 0, 1, 2
+            this.EA.style.strokeColor = strokeColor;
+            this.EA.style.strokeWidth = 2;
+            this.EA.setFillStyle(0); // 0,1,2
+            this.EA.setStrokeStyle(0); // 0,1,2
+            this.EA.setStrokeSharpness(1); // 0,1
+            this.EA.style.fontSize = 24;
             this.EA.setFontFamily(0);  // 0, 1, 2
         } else {
             const strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
@@ -218,7 +256,28 @@ export class PojoTimeline {
         }
     }
 
-    private async _drawPhotos (allcolw, metainfo: object) {
+    private _drawDiaryEntry (allcolw, dailyentry: object, yMax: number) {
+        const self = this;
+
+        this._setStyle("body");
+        const x = -this.timewidth;
+        const y = yMax + this.defheight * 2;
+
+        if (dailyentry && dailyentry.Description) {
+
+            const regex = /\[\[(.*?)\]\]/;
+            const newdesc = dailyentry.Description.filter((val) => {
+                const link = val.match(regex);
+                if (link) { return false; }
+                else { return true; }
+            });
+
+            const content = newdesc.join("\n\n");
+            this.EA.addText(x, y, content, { width: allcolw, box: "box", boxPadding: 5 });
+        }
+    }
+
+    private async _drawPhotos (allcolw, metainfo: object, yMax: number) {
         const self = this;
 
         this._setStyle("default");
@@ -226,6 +285,10 @@ export class PojoTimeline {
         // Include any photos!
         let yLeft = this.maxL + this.defheight;
         let yRight = this.maxR + this.defheight;
+        if (yMax) {
+            yLeft = yMax + this.defheight;
+            yRight = yMax + this.defheight;
+        }
         let bPlaceLeft = true;
 
         if (metainfo && metainfo.Photo) {
@@ -253,11 +316,13 @@ export class PojoTimeline {
 
                     const elinfo = this.EA.getElement(idimage);
                     console.log("IMAGE ELEMENT INFO ", elinfo);
+                    let height = 500;
+                    if (elinfo) { height = elinfo.height; }
 
                     if (bPlaceLeft) {
-                        yLeft = elinfo.height + y;
+                        yLeft = height + y;
                     } else {
-                        yRight = elinfo.height + y;
+                        yRight = height + y;
                     }
                     bPlaceLeft = !bPlaceLeft;
                 }
@@ -265,27 +330,25 @@ export class PojoTimeline {
         }
     }
 
-    private async _drawHeader (allcolw, fm: object) {
+    private async _drawHeader (allcolw, header) {
         const self = this;
 
         this._setStyle("header");
 
-        const x = 0;
-        let y = this.zeroy - this.defheight;
-        const __setHeadText = function (prop, text) {
-            const msg = prop ? prop + ": " + text : text;
-            self.EA.addText(x, y, msg);
-            y -= self.defheight;
+        const x = -this.timewidth;
+        let y = this.zeroy - 50;
+
+        for (let n = header.length - 1; n >= 0; n--) {
+            self.EA.addText(x, y, header[n]);
+            y -= 50;
         }
-        if (fm["Daily Note"]) { __setHeadText(null, fm["Daily Note"]); }
-        //        if (fm["ISODave"]) { __setHeadText("ISODave", fm["ISODave"]); }
-        //        if (fm["Last Converted"]) { __setHeadText("Last Converted", fm["Last Converted"]); }
 
         this._setStyle("default");
     }
 
     private _drawLabelL (event) {
         // Add label to left of timeline
+        this._setStyle("left");
         let idlabel;
         let bPlaceLabel = true;
         while (bPlaceLabel) {
@@ -313,12 +376,14 @@ export class PojoTimeline {
                 bPlaceLabel = false;
             }
         }
+        this._setStyle("default");
 
         return idlabel;
     }
 
     private _drawLabelR (allcolw, txt, y) {
         // Add label to right of timeline
+        this._setStyle("right");
         let ylabel = y;
         const len = txt.length;
         const textwidth = Math.min(this.boxwidth, len * 10);
@@ -344,6 +409,7 @@ export class PojoTimeline {
                 bPlaceLabel = false;
             }
         }
+        this._setStyle("default");
 
         return idlabel;
     }
@@ -409,7 +475,7 @@ export class PojoTimeline {
         }
     }
 
-    private _drawTime (timew, allcolw, hr) {
+    private _drawTime (timew, allcolw, hr): number {
         let ht;
         if (hr < 12) {
             ht = hr + " am";
@@ -425,6 +491,7 @@ export class PojoTimeline {
             this.EA.addLine([[-timew, ymins * this.scale], [allcolw, ymins * this.scale]]);
             this.EA.addText(-timew, ymins * this.scale, ht);
         }
+        return ymins;
     }
 
 
@@ -588,42 +655,24 @@ export class PojoTimeline {
     /**
      * Creates an array of event objects that are sorted in time.
      */
-    private _getNoteInfo (notefile: TFile): object {
+    private async _getNoteInfo (notefilepath: string, finfo: object): Promise<object> {
 
-        /*
-        //check if an editor is the active view
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view) {
-            warning(this.app, "Daily Note not active", "Daily Note must be currently selected. NO view selected.");
-            return {
-                success: false,
-                error: "ERROR_NO_VIEW_EDITOR"
-            };
+        console.log("HERE IS FILE INFO ", finfo);
+
+        if (!finfo) {
+            let notefile: TFile;
+
+            if (!notefilepath) {
+                notefile = this.app.workspace.getActiveFile();
+                console.log("file for timeline", notefilepath);
+            } else {
+                notefile = this.app.vault.getAbstractFileByPath(notefilepath) as TFile;
+            }
+            finfo = await this.pojo.getMarkdownFileInfo(notefile, "filecache", false);
         }
 
-        console.log("Active view", view);
-        if (!view.editor) {
-            warning(this.app, "Daily Note not active", "Daily Note must be currently selected. NO Editor available.");
-            return {
-                success: false,
-                error: "ERROR_NO_VIEW"
-            };
-        }
-
-        const linecount = view.editor.lineCount();
-        console.log("HERE IS LIJNE COUNE=T", linecount);
-*/
-        let file: TFile;
-        if (notefile) {
-            file = notefile;
-        } else {
-            file = this.app.workspace.getActiveFile();
-        }
-        console.log("file for timeline", file);
-        const finfo = this.app.metadataCache.getFileCache(file);
-        console.log("HERE is finfo", finfo);
         if (!finfo || !finfo.frontmatter || !finfo.frontmatter.metainfo) {
-            const msg = "Cannot create timeline for active file: " + file.name + " . Must be a processed Daily Note!";
+            const msg = "Cannot create timeline for active file: " + notefile.name + " . Must be a processed Daily Note!";
             warning(this.app, "Cannot create timeline.", msg);
             new Notice(msg, 8000);
             errorlog({ fn: this._getEvents, where: "pojo_timeline.ts/PojoTimeline", message: msg });
@@ -633,12 +682,17 @@ export class PojoTimeline {
                 message: msg
             }
         }
-        //        const metainfo = finfo.frontmatter.metainfo;
-        //        console.log("METAINFO is ", metainfo);
+
+        let metainfo = finfo.frontmatter.metainfo;
+        if (typeof metainfo == "string") {
+            metainfo = JSON.parse(metainfo);
+        }
 
         return {
             success: true,
-            frontmatter: finfo.frontmatter
+            metainfo: metainfo,
+            frontmatter: finfo.frontmatter,
+            bodycontent: finfo.bodycontent
         }
     }
 

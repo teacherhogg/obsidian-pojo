@@ -348,6 +348,7 @@ export class PojoZap extends Modal {
             self.pojo.errorStack(true);
 
             const retval = await convert.convertDailyNote(dfile, databases, suggestedTags, imageactions, bTimeline, bConvertAgain, bConvertAllNotes);
+            console.log("convertDailyNote retval", retval);
             lastmsg = retval.msg;
 
             nDone++;
@@ -390,7 +391,7 @@ export class PojoZap extends Modal {
                 if (bTimeline) {
                     console.log('Testing Timeline', self.pojo);
                     const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
-                    const retobj = await timeline.createTimeline(retval.new_note, retval.timeline_file);
+                    const retobj = await timeline.createTimeline(retval.new_note, retval.timeline_file, retval.fileinfo, retval.dailyentry);
                     console.log('Finished da test', retobj);
                 }
             }

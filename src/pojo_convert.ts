@@ -652,7 +652,7 @@ export class PojoConvert {
         const sections = {};
         const footlinks = [];
         let dailynotefile = null;
-        let newnote: TFile = null;
+        let newnote_filepath: string = null;
         let timeline_file = null;
         try {
 
@@ -717,7 +717,7 @@ export class PojoConvert {
 
             // Output the new Daily Note file.
             const mdcontent = md.join("\n");
-            newnote = await this.pojo.createVaultFile(mdcontent, this.settings.folder_daily_notes, dailynotefile, true);
+            newnote_filepath = await this.pojo.createVaultFile(mdcontent, this.settings.folder_daily_notes, dailynotefile, true);
 
         } catch (err) {
             this.pojo.logError("ERROR caught on markdownexport", err);
@@ -748,9 +748,13 @@ export class PojoConvert {
         // Create markdown files for metadata records
         await this.writeOutMetadataRecords(dailynotefile, newrecords);
 
+        // Add the frontmatter to the fileinfo (used if doing timeline)
+        fileinfo.frontmatter = frontmatter;
         return {
             "type": "success",
-            "new_note": newnote,
+            "fileinfo": fileinfo,
+            "new_note": newnote_filepath,
+            "dailyentry": dailyentry,
             "timeline_file": timeline_file,
             "msg": "Daily Note converted successfully."
         }
@@ -1830,7 +1834,7 @@ export class PojoConvert {
         console.log("Adding timeline file? " + timeline_file);
         if (timeline_file) {
             md.push("\n");
-            md.push(`[[${timeline_file}]]`);
+            md.push(`[[${timeline_file}.excalidraw]]`);
         }
 
         // Output the Daily Entry

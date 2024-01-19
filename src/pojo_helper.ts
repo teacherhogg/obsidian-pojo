@@ -267,7 +267,7 @@ export class PojoHelper {
         return foldername + "/" + filename;
     }
 
-    async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean): Promise<TFile> {
+    async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean): Promise<string> {
 
         // First check if folder exists in vault.
         if (!(await this.vault.adapter.exists(folder))) {
@@ -275,7 +275,7 @@ export class PojoHelper {
             await this.vault.adapter.mkdir(folder);
         }
 
-        let newfile: TFile = null;
+        //        let newfile: TFile = null;
         const filepath = generatePath(folder, filename);
         if (await this.vault.adapter.exists(filepath)) {
             if (bOverwrite) {
@@ -283,12 +283,11 @@ export class PojoHelper {
                 this.logDebug("OOO -> OVERRWORTE file " + filepath);
             }
         } else {
-            newfile = await this.vault.create(filepath, data);
+            await this.vault.create(filepath, data);
             this.logDebug("CCC -> Created file " + filepath);
         }
 
-        return newfile;
-
+        return filepath;
     }
 
     pojoConversion ()
