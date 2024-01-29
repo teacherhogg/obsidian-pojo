@@ -480,8 +480,8 @@ export class PojoConvert {
         // This means the original file has already been archived and we need to redo from that copy!
 
         this.pojo.logDebug("Converting Daily Note again? " + convertAgain, inputFile);
-        console.log("HERE are suggestedTags", suggestedTags);
-        console.log("HERE are databases", databases);
+        //        console.log("HERE are suggestedTags", suggestedTags);
+        //        console.log("HERE are databases", databases);
 
         let fname = null;
         let fileinfo = null;
@@ -711,7 +711,7 @@ export class PojoConvert {
 
             dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
             if (timeLine) {
-                timeline_file = frontmatter["Daily Note"] + " timeline";
+                timeline_file = dailynotefile + " timeline";
             }
             const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions, timeline_file);
 
@@ -737,7 +737,7 @@ export class PojoConvert {
         const origNoteFile = this.vault.getAbstractFileByPath(orignote);
 
         // BOB
-        const nodelorig = false;
+        const nodelorig = true;
         if (!nodelorig) {
             //        console.log("DELETING original noteFile " + orignote, origNoteFile);
             await this.vault.delete(origNoteFile);
@@ -870,37 +870,34 @@ export class PojoConvert {
         this.exitNow([], true);
     }
 
-    private getNoteFileName (filename: string, bProcessed: boolean, dailynotename: string): string {
+    private getNoteFileName (filename: string, bProcessed: boolean, fmDailyNote: string): string {
         // Returns the filename for PROCESSED if bProcessed true, or NOT with PROCESSED if bProcessed false
 
         const a = filename.split(".");
         const lastchar = a[0].charAt(a[0].length - 1);
 
+        let notebasename;
+        if (lastchar == "⚡") {
+            // Remove last two chars.
+            notebasename = a[0].slice(0, a[0].length - 2);
+        } else {
+            notebasename = a[0];
+        }
+
+        if (fmDailyNote) {
+            // Check the date and filenames make sense!
+            if (fmDailyNote !== notebasename) {
+                console.error("ERROR - Daily Note frontmatter not consistent with filename!", fmDailyNote, notebasename);
+            }
+
+        }
+
         if (bProcessed) {
             // Name should be of the form "YYYY-MM-DD dow ⚡" when returned.
-            if (dailynotename) {
-                return dailynotename + " ⚡." + a[1];
-            } else {
-                if (lastchar == "⚡") {
-                    return filename;
-                } else {
-                    return a[0] + " ⚡." + a[1];
-                }
-            }
-        } else {
+            return notebasename + " ⚡." + a[1];
+        } else
             // Name should be of the form "YYYY-MM-DD dow" when returned.
-            if (dailynotename) {
-                return dailynotename + "." + a[1];
-            } else {
-                if (lastchar == "⚡") {
-                    // Remove last two chars.
-                    const newname = a[0].slice(0, a[0].length - 2);
-                    return newname + "." + a[1];
-                } else {
-                    return filename;
-                }
-            }
-        }
+            return notebasename + "." + a[1];
     }
 
     private exitNow (erra: string[], bend?: boolean) {
@@ -1182,9 +1179,9 @@ export class PojoConvert {
 
         }
 
-        console.log("HERE are the sections", sections);
+        //        console.log("HERE are the sections", sections);
         const fcontent = fileinfo.origcontent.split("\n");
-        console.log("File Content is ", fcontent);
+        //        console.log("File Content is ", fcontent);
 
         const _removeHash = function (input: string): string {
             let line = input.trimStart();
@@ -1208,12 +1205,12 @@ export class PojoConvert {
                 currsect = db;
                 // Parse this line! Remove leading # and whitespace
                 const pline = _removeHash(line);
-                console.log("INPUT:" + line + ": OUTPUT:" + pline + ":", db);
+                //                console.log("INPUT:" + line + ": OUTPUT:" + pline + ":", db);
 
-                let bDebug = true;
-                if (db == "Short") {
-                    bDebug = true;
-                }
+                const bDebug = false;
+                //                if (db == "Short") {
+                //                    bDebug = true;
+                //                }
 
                 let pobj = null;
                 if (pline) {
@@ -1239,24 +1236,24 @@ export class PojoConvert {
                             newsect.Date = info.Date;
                         }
                         doc[db].push(newsect);
-                        console.log("HERE be2 for " + db + " line>>" + line + "<<", doc[db]);
+                        //                        console.log("HERE be2 for " + db + " line>>" + line + "<<", doc[db]);
                         if (line && !skiplines[lnum + ""]) {
                             doc[db][0].Description.push(line);
                         }
                     } else {
-                        console.log("HERE be for " + db + " line>>" + line + "<<", doc[db]);
+                        //                        console.log("HERE be for " + db + " line>>" + line + "<<", doc[db]);
                         if (!skiplines[lnum + ""] && line) {
                             doc[db][0].Description.push(line);
-                        } else {
-                            console.log("SKIP THIS LINE " + section + " -> " + lnum, line);
+                            //                        } else {
+                            //                            console.log("SKIP THIS LINE " + section + " -> " + lnum, line);
                         }
                     }
                 } else {
-                    console.log(`LINE ${lnum} and db ${db}`, doc[db]);
+                    //                    console.log(`LINE ${lnum} and db ${db}`, doc[db]);
                     doc[db].push(pobj);
                 }
             } else {
-                console.log("HERE is doc and currsect " + currsect + " line: " + line, doc);
+                //                console.log("HERE is doc and currsect " + currsect + " line: " + line, doc);
                 let snum = doc[currsect].length;
                 if (doc[currsect].length == 0) {
                     const newsect = {
@@ -1271,7 +1268,7 @@ export class PojoConvert {
                     snum = 1;
                 }
                 const cobj = doc[currsect][snum - 1];
-                console.log("HERE is the current obj " + currsect + " num " + snum);
+                //                console.log("HERE is the current obj " + currsect + " num " + snum);
                 //                console.log("HERE is doc", doc);
                 if (!skiplines[lnum + ""] && line) {
                     if (!cobj.Description) { cobj.Description = []; }
@@ -1283,7 +1280,7 @@ export class PojoConvert {
         // NOW go through file adding to appropriate sections!
         for (let lnum = startline; lnum < fcontent.length; lnum++) {
             const sect = sections[lnum + ""];
-            console.log("startline:" + startline + " lnum:" + lnum, sect);
+            //            console.log("startline:" + startline + " lnum:" + lnum, sect);
             let section = null;
             let part1, part2 = null;
             if (sect) {
@@ -1298,7 +1295,7 @@ export class PojoConvert {
             } else {
                 part1 = fcontent[lnum];
             }
-            console.log("Parse Line 1:[" + part1 + "] 2:[" + part2 + "]", sect);
+            //            console.log("Parse Line 1:[" + part1 + "] 2:[" + part2 + "]", sect);
             if (part1) {
                 _addPart(lnum, part1, null);
             }
@@ -2013,7 +2010,7 @@ export class PojoConvert {
 
     private addMarkdownCalloutSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
 
-        console.warn("addMarkdownCalloutSection " + db, dbentry)
+        //        console.warn("addMarkdownCalloutSection " + db, dbentry)
 
         let catchall = true;
         for (const entry of dbentry) {
@@ -2080,7 +2077,7 @@ export class PojoConvert {
                     } else {
                         const moclink = this.pojo.getMOCReferences(dbinfo, type, param, paramval);
                         if (moclink) {
-                            console.log("MOCLINK ", moclink);
+                            //                            console.log("MOCLINK ", moclink);
                             // This field has a mocref status.
                             if (!newval._params) { newval._params = {}; }
                             newval._params[param] = moclink;

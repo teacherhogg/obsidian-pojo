@@ -105,11 +105,10 @@ export class PojoTimeline {
         if (!this.EA) {
             warning(self.app, "EXCALIDRAW_NOT_FOUND", "⚠ Excalidraw Plugin not found");
             return;
-        } else {
-            console.log("HERE IS the EA eh?", this.EA);
+            //            console.log("HERE IS the EA eh?", this.EA);
         }
 
-        console.log("HERE IS timewidth", this.timewidth, this.scale);
+        //        console.log("HERE IS timewidth", this.timewidth, this.scale);
     }
 
     async testing () {
@@ -147,7 +146,7 @@ export class PojoTimeline {
 
         // Split events into arrays that don't overlap in time
         const eventobj = this._eventCollisions(retobj.events);
-        console.log("HERE are event arrays", eventobj);
+        //        console.log("HERE are event arrays", eventobj);
 
         // Now determine the width and locations of all events
         const allcolw = this._eventWidths(this.defwidth, this.minwidth, eventobj)
@@ -175,14 +174,14 @@ export class PojoTimeline {
         if (dailyentry && dailyentry.Heading) { header.push(dailyentry.Heading) }
         if (note_file) {
             const pinfo = path.parse(note_file);
-            console.log("PINFO is ", pinfo)
+            //            console.log("PINFO is ", pinfo)
             header.push(`[[${pinfo.base}]]`)
         }
 
         await this._drawHeader(allcolw, header);
 
         // Add Daily Entry
-        console.log("HERE is dailyentry", dailyentry)
+        //        console.log("HERE is dailyentry", dailyentry)
         if (dailyentry) {
             this._drawDiaryEntry(allcolw, dailyentry, yMax);
         }
@@ -311,11 +310,11 @@ export class PojoTimeline {
 
                     const ipath = generatePath(this.settings.folder_attachments, photo.image);
                     const iFile = this.vault.getAbstractFileByPath(ipath) as TFile;
-                    console.log("HERE IS THE IMAGE", iFile, ipath);
+                    //                    console.log("HERE IS THE IMAGE", iFile, ipath);
                     const idimage = await this.EA.addImage(x, y, iFile, true, true);
 
                     const elinfo = this.EA.getElement(idimage);
-                    console.log("IMAGE ELEMENT INFO ", elinfo);
+                    //                    console.log("IMAGE ELEMENT INFO ", elinfo);
                     let height = 500;
                     if (elinfo) { height = elinfo.height; }
 

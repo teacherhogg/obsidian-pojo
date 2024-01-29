@@ -363,7 +363,8 @@ export class PojoHelper {
 
     logDebug (category: string, obj: string | object, bOutputNow?: boolean) {
 
-        if (bOutputNow && obj) {
+        const override = true; // DISABLE output now.
+        if (!override && bOutputNow && obj) {
             console.group(category);
             console.warn(obj);
             console.groupEnd();
@@ -649,7 +650,7 @@ export class PojoHelper {
             let textval;
             if (isNaN(num)) {
                 // Assume it is a text field. Check for units matching
-                console.log("ASSUMING this one is a text field!", tag);
+                //                console.log("ASSUMING this one is a text field!", tag);
                 for (const mrk in this.metaunits) {
                     const mro = this.metaunits[mrk];
                     if (mro.type == "text") {
@@ -686,7 +687,7 @@ export class PojoHelper {
                     fieldi = this.metaunits[unit];
                 }
             }
-            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
+            //            console.log("here is fieldi for " + tag + " and unit " + unit, fieldi);
 
             if (!fieldi) {
                 this.logError("ERROR getting fieldi for tag " + tag);
@@ -748,6 +749,8 @@ export class PojoHelper {
 
     getLocalDate (inputDate: string): Date {
         const zdate = inputDate ? new Date(inputDate) : new Date();
+        if (!inputDate) { return zdate; }
+
         const offset = zdate.getTimezoneOffset() * 60 * 1000;
         const zdatenum = zdate.getTime() + 6 * 60 * 60 * 1000 + offset;
         return new Date(zdatenum);
@@ -777,7 +780,7 @@ export class PojoHelper {
         // mocref is the field which indicates if a moc is going to be created. The allowed values are moc and moc-type
         if (fldinfo.mocref == "moc" || fldinfo.mocref == "moc-type") {
             // moc is the default mocref and it's meaning depends on if it is a database, type, or other param.
-            console.log("moccheck? ", fldinfo);
+            //            console.log("moccheck? ", fldinfo);
             if (dbinfo.type == fieldname) {
                 // type
                 if (Array.isArray(fieldvalue)) {

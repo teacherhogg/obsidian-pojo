@@ -389,10 +389,10 @@ export class PojoZap extends Modal {
 
                 // If converted succesfully, also create timeline (if enabled)
                 if (bTimeline) {
-                    console.log('Testing Timeline', self.pojo);
+                    //                    console.log('Testing Timeline', self.pojo);
                     const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
                     const retobj = await timeline.createTimeline(retval.new_note, retval.timeline_file, retval.fileinfo, retval.dailyentry);
-                    console.log('Finished da test', retobj);
+                    //                    console.log('Finished da test', retobj);
                 }
             }
 
