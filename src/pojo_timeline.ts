@@ -45,6 +45,8 @@ export class PojoTimeline {
     private LLabelArray;
     private disabled;
     private subfolder_timelines;
+    private event_colors;
+    private catinfo;
 
     constructor(settings: PojoSettings, pojo: object, vault: Vault, app: App) {
         const self = this;
@@ -83,6 +85,7 @@ export class PojoTimeline {
             this.defwidth = _setSetting("default_width");
             this.minwidth = _setSetting("min_width");
             this.labelspace = _setSetting("labelspace");
+            this.event_colors = _setSetting("event_colors");
             this.subfolder_timelines = _setSetting("subfolder_timelines");
             this.bEventOrder = _setSetting("event_order");
             const daystart = _setSetting("daystart");
@@ -92,6 +95,13 @@ export class PojoTimeline {
         this.colwidth = 500;
         this.defheight = 35;
         this.boxwidth = this.colwidth - this.timewidth;
+
+        if (this.event_colors) {
+            this.catinfo = this.pojo.getCategories();
+
+            console.log("HERE ARE CATINFO", this.catinfo);
+        }
+
 
         // TODO - move these to POJO settings.
         this.dbasesAdd = ["Places", "Night"];
@@ -382,7 +392,7 @@ export class PojoTimeline {
 
     private _drawLabelR (allcolw, txt, y) {
         // Add label to right of timeline
-        this._setStyle("right");
+        //        this._setStyle("right");
         let ylabel = y;
         const len = txt.length;
         const textwidth = Math.min(this.boxwidth, len * 10);
@@ -408,18 +418,44 @@ export class PojoTimeline {
                 bPlaceLabel = false;
             }
         }
-        this._setStyle("default");
+        //        this._setStyle("default");
 
         return idlabel;
     }
 
     private _drawEvent (allcolw, event) {
 
-        const strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
+        let strokeColor;
+        let backgroundColor;
+        let opacity = 100;
+        let strokeWidth = 2;
+        let bTextInBox = true;
+        if (!event.color || event.color == "#000000") {
+            if (!event.color) {
+                strokeColor = '#' + (Math.random() * 0xFFFFFF << 0).toString(16).padStart(6, "0");
+            } else {
+                strokeColor = event.color;
+            }
+            backgroundColor = "transparent";
+        } else {
+            if (event.start == 0 || !event.dur) {
+                strokeColor = event.color;
+                backgroundColor = "transparent";
+            } else {
+                // Regular event with start time and duration and event color defined!
+                bTextInBox = false;
+                strokeColor = event.color;
+                backgroundColor = event.color;
+                opacity = 100;
+                strokeWidth = 4;
+            }
+        }
 
         this.EA.style.roughness = 1; // 0, 1, 2
         this.EA.style.strokeColor = strokeColor;
-        this.EA.style.strokeWidth = 2;
+        this.EA.style.backgroundColor = backgroundColor;
+        this.EA.style.strokeWidth = strokeWidth;
+        this.EA.style.opacity = opacity;
 
         const duration = event.hasOwnProperty("dur") ? event.dur : 0;
 
@@ -431,8 +467,8 @@ export class PojoTimeline {
                 // Event has a time but no duration.
 
                 // Draw a line across all columns
-                this.EA.style.strokeColor = "#00008B";
-                this.EA.style.strokeWidth = 3;
+                //                this.EA.style.strokeColor = "#00008B";
+                //                this.EA.style.strokeWidth = 3;
                 const id = this.EA.addLine([[0, event.start], [allcolw, event.start]]);
 
                 // Draw a label
@@ -448,7 +484,7 @@ export class PojoTimeline {
                 // Standard event that has start time and duration. 
                 const align = "left";
                 let id = null;
-                if (event.dur < this.mindur) {
+                if (!bTextInBox || event.dur < this.mindur) {
                     // NOT enough room to add text to box
 
                     // Draw box without text
@@ -695,7 +731,52 @@ export class PojoTimeline {
         }
     }
 
+    private _getColor (dbinfo, dbe) {
+        /* Get the most specific color specifier */
+
+        const catkeys = this.catinfo.catkeys[this.event_colors];
+        if (!catkeys) {
+            // No category colors group info found.
+            console.error("MISSING category groups for " + this.event_colors);
+            return "#000000";
+        }
+        //        console.log("HERE are catkeys", catkeys);
+
+        const __checkForColor = function (arrayc) {
+            for (const cat of arrayc) {
+                if (catkeys[cat]) {
+                    return catkeys[cat].colorcode;
+                }
+            }
+
+            return null;
+        }
+        // Get type key and value
+        const type = dbinfo.type;
+        const tval = dbe[type];
+
+        let rkey = `${dbinfo.database}-${type}-${tval}`;
+        let color = null;
+        if (this.catinfo.catmap[rkey]) {
+            color = __checkForColor(this.catinfo.catmap[rkey]);
+        }
+        if (!color) {
+            rkey = `${dbinfo.database}-${type}`;
+            if (this.catinfo.catmap[rkey]) {
+                color = __checkForColor(this.catinfo.catmap[rkey]);
+            }
+        }
+
+        if (color) {
+            return color;
+        } else {
+            return "#000000";
+        }
+    }
+
     private _getEvents (metainfo: object): object {
+
+        //        console.log("HERE is metainfo", metainfo);
 
         const events = [];
         const debug = true;
@@ -704,9 +785,12 @@ export class PojoTimeline {
             // Skip databases in ignore.
             if (this.dbIgnore.includes(db)) { continue; }
             const dbe = metainfo[db];
+            const dbinfo = this.pojo.getDatabaseInfo(db);
             for (const dbi of dbe) {
                 const tinfo = this._getTimeInfo(dbi);
                 const txt = this._getText(db, dbi);
+                const color = this._getColor(dbinfo, dbi);
+
                 //                console.log(db + ": " + txt, tinfo);
                 let y = tinfo.start * this.scale;
                 let dur = tinfo.dur * this.scale;
@@ -716,7 +800,8 @@ export class PojoTimeline {
                 const event = {
                     "start": y,
                     "txt": txt,
-                    "order": n
+                    "order": n,
+                    "color": color
                 };
                 if (dur) {
                     event.dur = dur;

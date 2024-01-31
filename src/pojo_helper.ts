@@ -25,6 +25,8 @@ export class PojoHelper {
     private debugging: boolean;
     private errorstack: null;
     private pojoDatabases: [];
+    private catkeys: null;
+    private catmap: null;
 
     constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault, app: App) {
         this.pojoProvider = pojoProvider;
@@ -363,7 +365,7 @@ export class PojoHelper {
 
     logDebug (category: string, obj: string | object, bOutputNow?: boolean) {
 
-        const override = true; // DISABLE output now.
+        const override = false; // DISABLE output now.
         if (!override && bOutputNow && obj) {
             console.group(category);
             console.warn(obj);
@@ -434,6 +436,7 @@ export class PojoHelper {
         }
 
         const pojoDB = {};
+        const pojoCatMap = {}
         const pojoHistory = {
             version: "???",
             databases: {}
@@ -449,11 +452,47 @@ export class PojoHelper {
                 const finfo = await this.getMarkdownFileInfo(fname, "yaml", false);
                 const fm = finfo?.frontmatter;
                 if (fm) {
-                    this.logDebug("FMINFO ", fm);
                     const dbname = fm._database.database;
+                    //                    this.logDebug("FMINFO " + dbname, fm, true);
                     dbkeys.push(dbname);
                     pojoDB[dbname] = fm._database;
-                    pojoHistory.databases[dbname] = fm;
+                    const dbvals = {
+                        "_database": fm._database
+                    }
+
+                    if (fm._database["field-info"]) {
+                        for (const field in fm._database["field-info"]) {
+                            const fldi = fm._database["field-info"][field];
+                            if (fldi.categories) {
+                                pojoCatMap[`${dbname}-${field}`] = fldi.categories;
+                            }
+                        }
+                    }
+
+                    for (const key in fm) {
+                        if (key !== "_database") {
+                            const newvals = [];
+                            if (!fm[key]) { fm[key] = []; }
+                            for (const val of fm[key]) {
+                                if (typeof (val) == "string") {
+                                    const a = val.split(",");
+                                    if (a.length > 1) {
+                                        // Must have categories associated with this.
+                                        const fval = a.shift();
+                                        const rkey = `${dbname}-${key}-${fval}`;
+                                        newvals.push(fval.trim());
+                                        pojoCatMap[rkey] = a.map(v => v.trim());
+                                    } else {
+                                        newvals.push(val)
+                                    }
+                                } else {
+                                    newvals.push(val);
+                                }
+                            }
+                            dbvals[key] = newvals;
+                        }
+                    }
+                    pojoHistory.databases[dbname] = dbvals;
                 }
             }
         } else {
@@ -467,8 +506,30 @@ export class PojoHelper {
         this.logDebug("POJO DB NEW", pojoDB);
         //        this.logDebug("POJO DB OLD", this.loadedPojoDB);
 
-        this.logDebug("POJO HISTORY NEW", pojoHistory);
-        //      this.logDebug("POJO HISTORY OLD", this.loadedPojoHistory);
+        this.logDebug("POJO HISTORY NEW", pojoHistory, true);
+
+        this.catmap = pojoCatMap;
+        this.logDebug("POJO CATEGORY MAP", pojoCatMap, true);
+        const cats = await this.getSettings("categories.md");
+        this.logDebug("POJO categories.md", cats, true);
+
+        const catkeys = {};
+        if (cats.Groups) {
+            for (const group in cats.Groups) {
+                catkeys[group] = {};
+                for (const catkey in cats.Groups[group]) {
+                    const catobj = cats.Groups[group][catkey];
+                    catkeys[group][catkey] = catobj;
+                    if (cats.Colors && catobj.color) {
+                        if (cats.Colors[catobj.color]) {
+                            catkeys[group][catkey].colorcode = cats.Colors[catobj.color];
+                        }
+                    }
+                }
+            }
+        }
+        this.catkeys = catkeys;
+        this.logDebug("POJO catkeys", catkeys, true);
 
         this.pojoDatabases = dbkeys;
 
@@ -480,6 +541,10 @@ export class PojoHelper {
         }
 
         return true;
+    }
+
+    getCategories () {
+        return { catmap: this.catmap, catkeys: this.catkeys };
     }
 
     getDatabases (bDetailed: boolean, bLowerCase = false): string[] {
@@ -872,6 +937,7 @@ export class PojoHelper {
         }
 
         const dbinfo = this.loadedPojoDB[dbname];
+        //        console.log("DBINFO for " + dbname, dbinfo);
         //        if (!dbinfo) {
         //            const capname = dbname.charAt(0).toUpperCase() + dbname.slice(1);
         //            dbinfo = this.loadedPojoDB[capname];

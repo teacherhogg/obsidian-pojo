@@ -1,11 +1,231 @@
 [[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+8: 8
+9: 9
+10: 10
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+ ]]
+[[ 
+ERROR missing database info in pojo settings
+0: 0
+1: 1
+2: 2
+3: 3
+4: 4
+5: 5
+6: 6
+7: 7
+ ]]
+[[ 
 ERROR caught on markdownexport
-image is not defined
+content3._params is not iterable
 Call Stack => 
-ReferenceError: image is not defined
-    at PojoConvert.addFrontMatterForEntry (plugin:obsidian-pojo:19755:60)
-    at PojoConvert.convertDailyNote (plugin:obsidian-pojo:18387:12)
-    at async PojoZap.convertDailyNotes (plugin:obsidian-pojo:20975:22)
-    at async eval (plugin:obsidian-pojo:20835:28)
-    at async eval (plugin:obsidian-pojo:21420:9)
+TypeError: content3._params is not iterable
+    at PojoConvert.addMarkdownCalloutSection (plugin:obsidian-pojo:19568:35)
+    at PojoConvert.convertDailyNote (plugin:obsidian-pojo:18427:18)
+    at async PojoZap.convertDailyNotes (plugin:obsidian-pojo:21179:22)
+    at async ProgressDialog._doConversion [as callback] (plugin:obsidian-pojo:21016:26)
+    at async ProgressDialog.onOpen (plugin:obsidian-pojo:21450:5)
  ]]

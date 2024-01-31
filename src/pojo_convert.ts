@@ -2091,7 +2091,7 @@ export class PojoConvert {
             if (newval) { values.push(newval); }
         }
 
-        this.pojo.logDebug("section creation " + db, section, true);
+        this.pojo.logDebug("section creation " + db, section);
     }
 
 
@@ -2283,12 +2283,12 @@ export class PojoConvert {
                                         // Special case - extract image attachment from description
                                         const regex = /\[\[(.*?)\]\]/;
                                         const fval = me[mekey];
-                                        console.log("HERE IS FVAL " + fval);
+                                        //                                        console.log("HERE IS FVAL " + fval);
                                         const imagea = fval[0].match(regex);
                                         if (imagea && imagea.length > 0) {
                                             sume.image = imagea[imagea.length - 1];
                                         }
-                                        console.log("PHOTO PHOTO ", me[mekey], sume.image);
+                                        //                                        console.log("PHOTO PHOTO ", me[mekey], sume.image);
                                     }
                                 } else {
                                     sume[mekey] = me[mekey];
