@@ -5,6 +5,7 @@ import { PojoSettings, generatePath } from "./settings";
 import { WarningPrompt } from './utils/Prompts';
 import { errorlog } from './utils/utils';
 import * as path from "path";
+import { arrayBuffer } from "stream/consumers";
 
 
 declare global {
@@ -217,9 +218,24 @@ export class PojoTimeline {
                 foldername: folder,
                 onNewPane: true
             }
-            this.EA.create(eaoptions);
+            await this.EA.create(eaoptions);
+
+            const finfo = path.parse(filename);
+            console.log("HERE IS FILENAME " + filename, finfo);
+
+            const svgHtml = await this.EA.createSVG();
+            const svgData = new XMLSerializer().serializeToString(svgHtml);
+            await this.pojo.createVaultFile(svgData, folder, finfo.base + ".svg");
+
+            const pngBlob = await this.EA.createPNG();
+            const aBuff = await pngBlob.arrayBuffer();
+            const buff = Buffer.from(aBuff);
+            //            var binary = fixBinary(atob(base64));
+            //            const blob = new Blob([pngData], { type: 'image/png' });
+            await this.pojo.createVaultFile(buff, folder, finfo.base + ".png");
+
         } else {
-            this.EA.create({ onNewPane: true });
+            await this.EA.create({ onNewPane: true });
         }
 
     }

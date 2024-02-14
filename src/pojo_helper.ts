@@ -365,6 +365,7 @@ export class PojoHelper {
 
     logDebug (category: string, obj: string | object, bOutputNow?: boolean) {
 
+        // BOB BOB BOB
         const override = false; // DISABLE output now.
         if (!override && bOutputNow && obj) {
             console.group(category);

@@ -109,7 +109,8 @@ export class PojoConvert {
     }
 
     async createMOCFiles (dbname: string, dbdata: object, templates: object, tagsummary: object, info: object): Promise<object> {
-        //        console.log("createMOC Files for " + dbname, dbdata);
+
+        console.log("createMOC Files for " + dbname, dbdata);
         const self = this;
         const dbinfo = dbdata._database;
         const typekey = dbinfo.type;
@@ -275,7 +276,7 @@ export class PojoConvert {
             console.log(`_createMoc ${moclink} type ${moctype} (${typeval}) [${filterkey} = ${filtervalue}, ${subfilterkey} = ${subfiltervalue}] <${dbname}>`);
 
             const { mocFileName, mocFileInfo } = await _initMOCFile(moclink);
-            //            console.log("returned from _initMocFile " + mocFileName, mocFileInfo);
+            console.log("returned from _initMocFile " + mocFileName, mocFileInfo);
 
             let moc;
             const viewarg = {
@@ -737,7 +738,7 @@ export class PojoConvert {
         const origNoteFile = this.vault.getAbstractFileByPath(orignote);
 
         // BOB
-        const nodelorig = true;
+        const nodelorig = false;
         if (!nodelorig) {
             //        console.log("DELETING original noteFile " + orignote, origNoteFile);
             await this.vault.delete(origNoteFile);
@@ -2010,7 +2011,9 @@ export class PojoConvert {
 
     private addMarkdownCalloutSection (sections: object, date: string, db: string, dbentry: object[], dbinfo: object) {
 
-        //        console.warn("addMarkdownCalloutSection " + db, dbentry)
+        //        if (db == "Photo") {
+        console.warn("addMarkdownCalloutSection " + db, dbentry);
+        //        }
 
         let catchall = true;
         for (const entry of dbentry) {
@@ -2061,15 +2064,19 @@ export class PojoConvert {
         }
 
         for (const content of dbentry) {
-            const type = content[content["_typeparam"]];
-            if (!section.content[type]) {
-                section.content[type] = [];
+            const typeparam = content._typeparam;
+            const type = content[typeparam];
+            const mocref = this.pojo.getMOCReferences(dbinfo, type, typeparam, type);
+            console.log("GOTS MOCREF for type " + typeparam + "=" + type, mocref);
+            const typeref = mocref ? mocref : type;
+            if (!section.content[typeref]) {
+                section.content[typeref] = [];
             }
-            const values = section.content[type];
+            const values = section.content[typeref];
             let newval = null;
             for (const param of content["_params"]) {
                 const paramval = content[param];
-                //                this.pojo.logDebug("addMarkdownCallout with " + param, paramval, true);
+                //     this.pojo.logDebug("addMarkdownCallout with " + param, paramval, true);
                 if (paramval) {
                     if (!newval) { newval = {}; }
                     if (param == "Description") {
@@ -2077,7 +2084,7 @@ export class PojoConvert {
                     } else {
                         const moclink = this.pojo.getMOCReferences(dbinfo, type, param, paramval);
                         if (moclink) {
-                            //                            console.log("MOCLINK ", moclink);
+                            console.log("MOCLINK ", moclink);
                             // This field has a mocref status.
                             if (!newval._params) { newval._params = {}; }
                             newval._params[param] = moclink;
@@ -2091,7 +2098,7 @@ export class PojoConvert {
             if (newval) { values.push(newval); }
         }
 
-        this.pojo.logDebug("section creation " + db, section);
+        this.pojo.logDebug("section creation " + db, section, true);
     }
 
 
