@@ -26,7 +26,9 @@ export class PojoHelper {
     private errorstack: null;
     private pojoDatabases: [];
     private catkeys: null;
+    private catgroups: null;
     private catmap: null;
+    private trackmap: null;
 
     constructor(pojoProvider: object, pojosettings: PojoSettings, vault: Vault, app: App) {
         this.pojoProvider = pojoProvider;
@@ -185,6 +187,93 @@ export class PojoHelper {
         return foldername + "/" + filename;
     }
 
+    getCategory (group, dbinfo, dbi) {
+        /* Get the most specific category identifier with group */
+
+        const catinfo = this.getCategoryInfo();
+        const catkeys = catinfo.catkeys[group];
+        if (!catkeys) {
+            // No category group info found.
+            console.error("MISSING categories for group " + group);
+            return null;
+        }
+
+        const __checkForCategory = function (arrayc, rkey, tval) {
+            for (const cat of arrayc) {
+                if (catkeys[cat]) {
+                    const trigger = tval ? rkey + ":" + tval : rkey;
+                    catkeys[cat].category = cat;
+                    catkeys[cat].trigger = trigger;
+                    return catkeys[cat];
+                }
+            }
+
+            return null;
+        }
+
+        // Get type key and value
+        const type = dbinfo.type;
+        const tval = dbi[type];
+
+        let rkey = `${dbinfo.database}-${type}-${tval}`;
+        let catobj = null;
+        if (catinfo.catmap[rkey]) {
+            catobj = __checkForCategory(catinfo.catmap[rkey], rkey, null);
+        }
+        if (!catobj) {
+            rkey = `${dbinfo.database}-${type}`;
+            if (catinfo.catmap[rkey]) {
+                catobj = __checkForCategory(catinfo.catmap[rkey], rkey, tval);
+            }
+        }
+
+        return catobj;
+    }
+
+    getCategories (eventcats, dbinfo, dbi, duration) {
+
+        const catinfo = this.getCategoryInfo();
+        const groups = catinfo.catgroups;
+        for (const group of groups) {
+            const catobj = this.getCategory(group, dbinfo, dbi);
+            if (catobj) {
+                if (!eventcats[group]) { eventcats[group] = {}; }
+                if (!eventcats[group][catobj.category]) { eventcats[group][catobj.category] = { duration: 0, count: 0, triggers: [] }; }
+                eventcats[group][catobj.category].duration += duration;
+                eventcats[group][catobj.category].count++;
+                eventcats[group][catobj.category].triggers.push(catobj.trigger);
+            }
+        }
+    }
+
+    getMinutes (timestr) {
+        if (!timestr) { return -1; }
+        const a = timestr.split(":");
+        if (a.length !== 2) { return -2; }
+        return parseInt(a[0], 10) * 60 + parseInt(a[1], 10);
+    }
+
+    getTimeInfo (item) {
+        const tinfo = {};
+        if (item["Start Time"]) { tinfo.start = this.getMinutes(item["Start Time"]) }
+        if (item["End Time"]) { tinfo.end = this.getMinutes(item["End Time"]) }
+        if (item["Duration"]) { tinfo.dur = item["Duration"] }
+
+        if (isNaN(tinfo.dur)) {
+            tinfo.dur = 0;
+        }
+
+        if (!tinfo.end) {
+            if (tinfo.start && tinfo.dur) { tinfo.end = tinfo.start + tinfo.dur; }
+        }
+        if (!tinfo.start) {
+            if (tinfo.end && tinfo.dur) { tinfo.start = tinfo.end - tinfo.dur; }
+        }
+
+        return tinfo;
+    }
+
+
     async saveErrorLogFile (infoobj: object): Promise<string> {
 
         const logfile = [];
@@ -267,6 +356,19 @@ export class PojoHelper {
 
         await this.createVaultFile(logfile.join("\n"), foldername, filename, false);
         return foldername + "/" + filename;
+    }
+
+    async deleteFile (folder: string, filename: string) {
+        try {
+            const file = generatePath(folder, filename);
+            const fileRef = this.vault.getAbstractFileByPath(file) as TFile;
+            if (fileRef) {
+                await this.vault.delete(fileRef);
+                console.log("File existed so it was deleted: " + file);
+            }
+        } catch (err) {
+            console.error("ERROR delete file " + folder + " -> " + filename, err);
+        }
     }
 
     async createVaultFile (data: string, folder: string, filename: string, bOverwrite: boolean): Promise<string> {
@@ -366,7 +468,7 @@ export class PojoHelper {
     logDebug (category: string, obj: string | object, bOutputNow?: boolean) {
 
         // BOB BOB BOB
-        const override = false; // DISABLE output now.
+        const override = false; // DISABLE output if true
         if (!override && bOutputNow && obj) {
             console.group(category);
             console.warn(obj);
@@ -515,8 +617,10 @@ export class PojoHelper {
         this.logDebug("POJO categories.md", cats, true);
 
         const catkeys = {};
+        const groups = [];
         if (cats.Groups) {
             for (const group in cats.Groups) {
+                groups.push(group);
                 catkeys[group] = {};
                 for (const catkey in cats.Groups[group]) {
                     const catobj = cats.Groups[group][catkey];
@@ -530,9 +634,32 @@ export class PojoHelper {
             }
         }
         this.catkeys = catkeys;
+        this.catgroups = groups;
         this.logDebug("POJO catkeys", catkeys, true);
 
         this.pojoDatabases = dbkeys;
+
+        // Setup tracking rules
+        const tracking = await this.getSettings("tracking.md");
+        this.logDebug("POJO tracking.md", tracking, true);
+        const trackmap = {};
+        if (tracking) {
+            for (const trackname in tracking) {
+                const tobj = tracking[trackname];
+                if (!trackmap[tobj.database]) { trackmap[tobj.database] = []; }
+                tobj.GOAL_NAME = trackname;
+                if (tobj.type && !Array.isArray(tobj.type)) {
+                    tobj.type = [tobj.type];
+                }
+                trackmap[tobj.database].push(tobj);
+            }
+
+            console.log("HERE IS TRACKMAP", trackmap);
+            this.trackmap = trackmap;
+        } else {
+            this.trackmap = null;
+        }
+
 
         // Setup metameta
         const sobj = await this.getSettings("metameta-SETTINGS.md");
@@ -544,8 +671,12 @@ export class PojoHelper {
         return true;
     }
 
-    getCategories () {
-        return { catmap: this.catmap, catkeys: this.catkeys };
+    getTracking () {
+        return this.trackmap;
+    }
+
+    getCategoryInfo () {
+        return { catmap: this.catmap, catkeys: this.catkeys, catgroups: this.catgroups };
     }
 
     getDatabases (bDetailed: boolean, bLowerCase = false): string[] {

@@ -186,7 +186,7 @@ export class PojoZap extends Modal {
                         if (self.settings.timelines && self.settings.timelines.enabled) {
                             console.log('Testing Timeline', self.pojo);
                             const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
-                            const retobj = await timeline.createTimeline();
+                            const retobj = await timeline.createTimelines();
                             console.log('Finished da test', retobj);
                         } else {
                             const message = "Timeline support requires the timelines options to be set and enabled. Also, you must have the Obsidian Excalidraw plugin installed and enabled.";
@@ -340,14 +340,30 @@ export class PojoZap extends Modal {
         };
 
         let lastmsg;
-        let bTimeline = false;
-        if (self.settings.timelines && self.settings.timelines.enabled) {
-            bTimeline = true;
-        }
         for (const dfile of dailyFiles) {
             self.pojo.errorStack(true);
 
-            const retval = await convert.convertDailyNote(dfile, databases, suggestedTags, imageactions, bTimeline, bConvertAgain, bConvertAllNotes);
+            let timeline_opts = null;
+            if (self.settings?.timelines?.timeline_enabled) {
+                console.log("HERE IS dfile ", dfile, self.settings.timelines);
+                timeline_opts = {
+                    base: dfile.basename,
+                    include_photos: false,
+                    svg: false,
+                    png: false
+                };
+                if (self.settings.timelines.include_photos) {
+                    timeline_opts.include_photos = true;
+                }
+                if (self.settings.timelines.timeline_svg) {
+                    timeline_opts.svg = true;
+                }
+                if (self.settings.timelines.timeline_png) {
+                    timeline_opts.png = true;
+                }
+            }
+
+            const retval = await convert.convertDailyNote(dfile, databases, suggestedTags, imageactions, timeline_opts, bConvertAgain, bConvertAllNotes);
             console.log("convertDailyNote retval", retval);
             lastmsg = retval.msg;
 
@@ -388,10 +404,10 @@ export class PojoZap extends Modal {
                 }
 
                 // If converted succesfully, also create timeline (if enabled)
-                if (bTimeline) {
-                    //                    console.log('Testing Timeline', self.pojo);
+                if (timeline_opts) {
+                    console.log('Testing Timeline', timeline_opts);
                     const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
-                    const retobj = await timeline.createTimeline(retval.new_note, retval.timeline_file, retval.fileinfo, retval.dailyentry);
+                    const retobj = await timeline.createTimelines(timeline_opts, retval.new_note, retval.fileinfo, retval.dailyentry);
                     //                    console.log('Finished da test', retobj);
                 }
             }

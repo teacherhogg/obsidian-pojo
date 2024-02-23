@@ -32,7 +32,8 @@ export interface PojoSettings {
     delete_meta: string[],
     donotcreatefiles: false,
     donotcopyattachments: false,
-    import_folder: string
+    import_folder: string,
+    timelines: object
 }
 
 export const DEFAULT_SETTINGS: PojoSettings = {
@@ -46,6 +47,21 @@ export const DEFAULT_SETTINGS: PojoSettings = {
     "maxLookBackDistance": 50,
     "minWordLength": 2,
     "minWordTriggerLength": 3,
+    "timelines": {
+        "timeline_enabled": false,
+        "timeline_svg": false,
+        "timeline_png": false,
+        "include_photos": true,
+        "subfolder_timelines": "timelines",
+        "daystart": "5:00",
+        "timewidth": 75,
+        "labelspace": 40,
+        "event_order": true,
+        "default_width": 600,
+        "min_width": 150,
+        "min_duration": 30,
+        "event_colors": ""
+    },
     "metameta": {
         "Start Time": {
             "type": "start-time",

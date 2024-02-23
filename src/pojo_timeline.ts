@@ -5,7 +5,7 @@ import { PojoSettings, generatePath } from "./settings";
 import { WarningPrompt } from './utils/Prompts';
 import { errorlog } from './utils/utils';
 import * as path from "path";
-import { arrayBuffer } from "stream/consumers";
+//import { arrayBuffer } from "stream/consumers";
 
 
 declare global {
@@ -47,7 +47,6 @@ export class PojoTimeline {
     private disabled;
     private subfolder_timelines;
     private event_colors;
-    private catinfo;
 
     constructor(settings: PojoSettings, pojo: object, vault: Vault, app: App) {
         const self = this;
@@ -70,13 +69,13 @@ export class PojoTimeline {
             if (self.settings?.timelines.hasOwnProperty(key)) {
                 return self.settings.timelines[key];
             } else {
-                warning(self.app, key + "not found.", "timelines options not complete");
+                warning(self.app, key + " not found.", "timelines options not complete");
                 self.disabled = true;
                 return null;
             }
         }
 
-        if (!this.settings.timelines || !this.settings.timelines.enabled) {
+        if (!this.settings.timelines || !this.settings.timelines.timeline_enabled) {
             warning(self.app, "timelines settings invalid", "timelines settings not available or disabled.");
             self.disabled = true;
             return null;
@@ -90,19 +89,12 @@ export class PojoTimeline {
             this.subfolder_timelines = _setSetting("subfolder_timelines");
             this.bEventOrder = _setSetting("event_order");
             const daystart = _setSetting("daystart");
-            this.zeroy = this._getMins(daystart);
+            this.zeroy = this.pojo.getMinutes(daystart);
         }
         this.scale = 1;
         this.colwidth = 500;
         this.defheight = 35;
         this.boxwidth = this.colwidth - this.timewidth;
-
-        if (this.event_colors) {
-            this.catinfo = this.pojo.getCategories();
-
-            console.log("HERE ARE CATINFO", this.catinfo);
-        }
-
 
         // TODO - move these to POJO settings.
         this.dbasesAdd = ["Places", "Night"];
@@ -137,32 +129,11 @@ export class PojoTimeline {
         return true;
     }
 
-    async createTimeline (note_file: string, timeline_file: string, fileinfo: object, dailyentry: object) {
+    async _createTimeline (includePhotos: boolean, finfo: object, dailyentry: object, eventobj: object, allcolw: number, forImage: boolean) {
 
-        if (this.disabled) {
-            console.error("Timeline creation disabled.");
-            return;
-        }
-
-        const finfo = await this._getNoteInfo(note_file, fileinfo);
-        if (!finfo || !finfo.success) {
-            return finfo;
-        }
-
-        // Get events sorted in time
-        const retobj = this._getEvents(finfo.metainfo);
-        if (!retobj || !retobj.success || !retobj.events) {
-            return retobj;
-        }
-
-        // Split events into arrays that don't overlap in time
-        const eventobj = this._eventCollisions(retobj.events);
-        //        console.log("HERE are event arrays", eventobj);
-
-        // Now determine the width and locations of all events
-        const allcolw = this._eventWidths(this.defwidth, this.minwidth, eventobj)
-
+        // reset the drawing
         this.EA.reset();
+
         // Draw the timeline
         let yMax = this.zeroy;
         for (let h = 0; h < 24; h++) {
@@ -175,7 +146,14 @@ export class PojoTimeline {
             }
         }
 
+        let startY = yMax + this.defheight;
         for (const event of eventobj.eNoDuration) {
+            if (forImage) {
+                // Move these below the main timeline.
+                event.x = 0
+                event.y = startY;
+                startY += this.defheight;
+            }
             this._drawEvent(allcolw, event);
         }
 
@@ -183,59 +161,105 @@ export class PojoTimeline {
         const header = [];
         if (finfo.frontmatter && finfo.frontmatter["Daily Note"]) { header.push(finfo.frontmatter["Daily Note"]); }
         if (dailyentry && dailyentry.Heading) { header.push(dailyentry.Heading) }
-        if (note_file) {
-            const pinfo = path.parse(note_file);
-            //            console.log("PINFO is ", pinfo)
-            header.push(`[[${pinfo.base}]]`)
-        }
+        header.push("Last Converted: " + finfo.frontmatter["Last Converted"]);
 
         await this._drawHeader(allcolw, header);
 
         // Add Daily Entry
-        //        console.log("HERE is dailyentry", dailyentry)
-        if (dailyentry) {
+        if (!forImage && dailyentry) {
             this._drawDiaryEntry(allcolw, dailyentry, yMax);
         }
 
         // Add Any Photos
-        if (finfo.frontmatter && finfo.metainfo) {
+        if (includePhotos && finfo.frontmatter && finfo.metainfo) {
             await this._drawPhotos(allcolw, finfo.metainfo, yMax);
         }
+    }
 
-        let filename;
-        if (!timeline_file) {
-            if (finfo.frontmatter["Diary Date"]) {
-                filename = finfo.frontmatter["Diary Date"] + " timeline";
-            }
-        } else {
-            filename = timeline_file;
+    async createTimelines (opts: object, note_file: string, fileinfo: object, dailyentry: object) {
+
+        if (this.disabled) {
+            console.error("Timeline creation disabled.");
+            return;
         }
 
-        if (filename) {
-            const folder = generatePath(this.settings.folder_pojo, this.subfolder_timelines);
+        try {
+            this.createTimelines2(opts, note_file, fileinfo, dailyentry);
+        } catch (err) {
+            console.error("ERROR creating timeline", err);
+        }
+    }
+
+    async createTimelines2 (opts: object, note_file: string, fileinfo: object, dailyentry: object) {
+
+        const finfo = await this._getNoteInfo(note_file, fileinfo);
+        if (!finfo || !finfo.success) {
+            console.error("ERROR getting file info for " + note_file, finfo);
+            return null;
+        }
+        console.log("HERE is fileinfo ", finfo);
+
+        // Get events sorted in time
+        const retobj = this._getEvents(finfo.metainfo);
+        if (!retobj || !retobj.success || !retobj.events) {
+            return retobj;
+        }
+        console.log("HERE are retobj", retobj);
+
+        // Split events into arrays that don't overlap in time
+        const eventobj = this._eventCollisions(retobj.events);
+        console.log("HERE are event arrays", eventobj);
+
+        // Now determine the width and locations of all events
+        const allcolw = this._eventWidths(this.defwidth, this.minwidth, eventobj)
+
+        // Draw timeline using ExcalidrawAutomate
+        await this._createTimeline(opts?.include_photos, finfo, dailyentry, eventobj, allcolw, false);
+
+        const folder = generatePath(this.settings.folder_pojo, this.subfolder_timelines);
+        if (opts?.base) {
             const eaoptions = {
-                filename: filename,
+                filename: opts.base,
                 foldername: folder,
                 onNewPane: true
             }
+            console.log("CREATE excalidraw with ", eaoptions);
+
+            // Delete the existing excalidraw file (IF it exists)
+            await this.pojo.deleteFile(eaoptions.foldername, eaoptions.filename + ".excalidraw.md");
+
             await this.EA.create(eaoptions);
-
-            const finfo = path.parse(filename);
-            console.log("HERE IS FILENAME " + filename, finfo);
-
-            const svgHtml = await this.EA.createSVG();
-            const svgData = new XMLSerializer().serializeToString(svgHtml);
-            await this.pojo.createVaultFile(svgData, folder, finfo.base + ".svg");
-
-            const pngBlob = await this.EA.createPNG();
-            const aBuff = await pngBlob.arrayBuffer();
-            const buff = Buffer.from(aBuff);
-            //            var binary = fixBinary(atob(base64));
-            //            const blob = new Blob([pngData], { type: 'image/png' });
-            await this.pojo.createVaultFile(buff, folder, finfo.base + ".png");
-
         } else {
             await this.EA.create({ onNewPane: true });
+        }
+
+        console.log("FINISHED create timeline file " + opts.base);
+
+        // SVG and/or PNG versions of timeline
+        if (opts?.base && (opts?.svg || opts?.png)) {
+
+            // Redraw timeline using ExcalidrawAutomate for image creation
+            await this._createTimeline(false, finfo, dailyentry, eventobj, allcolw, true);
+
+
+            if (opts?.svg) {
+                // Delete the existing excalidraw svg file (IF it exists)
+                await this.pojo.deleteFile(folder, opts.base + ".svg");
+
+                const svgHtml = await this.EA.createSVG();
+                const svgData = new XMLSerializer().serializeToString(svgHtml);
+                await this.pojo.createVaultFile(svgData, folder, opts.base + ".svg");
+            }
+
+            if (opts?.png) {
+                // Delete the existing excalidraw png file (IF it exists)
+                await this.pojo.deleteFile(folder, opts.base + ".png");
+
+                const pngBlob = await this.EA.createPNG();
+                const aBuff = await pngBlob.arrayBuffer();
+                const buff = Buffer.from(aBuff);
+                await this.pojo.createVaultFile(buff, folder, opts.base + ".png");
+            }
         }
 
     }
@@ -371,7 +395,7 @@ export class PojoTimeline {
         this._setStyle("default");
     }
 
-    private _drawLabelL (event) {
+    private _drawLabelNoStartime (event) {
         // Add label to left of timeline
         this._setStyle("left");
         let idlabel;
@@ -406,7 +430,7 @@ export class PojoTimeline {
         return idlabel;
     }
 
-    private _drawLabelR (allcolw, txt, y) {
+    private _drawLabelForEvent (allcolw, txt, y) {
         // Add label to right of timeline
         //        this._setStyle("right");
         let ylabel = y;
@@ -477,7 +501,7 @@ export class PojoTimeline {
 
         if (event.start == 0) {
             // Event has no start time. 
-            this._drawLabelL(event);
+            this._drawLabelNoStartime(event);
         } else {
             if (!duration) {
                 // Event has a time but no duration.
@@ -488,7 +512,7 @@ export class PojoTimeline {
                 const id = this.EA.addLine([[0, event.start], [allcolw, event.start]]);
 
                 // Draw a label
-                const idlabel = this._drawLabelR(allcolw, event.txt, event.start);
+                const idlabel = this._drawLabelForEvent(allcolw, event.txt, event.start);
 
 
                 // Draw an arrow connecting label and line
@@ -507,7 +531,7 @@ export class PojoTimeline {
                     id = this.EA.addText(event.x, event.start, "", { box: true, height: event.dur, width: event.width, boxPadding: 0, textAlign: align });
 
                     // Add label to right of timeline
-                    const idlabel = this._drawLabelR(allcolw, event.txt, event.start);
+                    const idlabel = this._drawLabelForEvent(allcolw, event.txt, event.start);
 
                     // Add Connection for label and box
                     this.EA.connectObjects(idlabel, "left", id, "right", { endArrowHead: "arrow" });
@@ -749,45 +773,11 @@ export class PojoTimeline {
 
     private _getColor (dbinfo, dbe) {
         /* Get the most specific color specifier */
-
-        const catkeys = this.catinfo.catkeys[this.event_colors];
-        if (!catkeys) {
-            // No category colors group info found.
-            console.error("MISSING category groups for " + this.event_colors);
+        const catobj = this.pojo.getCategory(this.event_colors, dbinfo, dbe);
+        if (!catobj || !catobj.colorcode) {
             return "#000000";
         }
-        //        console.log("HERE are catkeys", catkeys);
-
-        const __checkForColor = function (arrayc) {
-            for (const cat of arrayc) {
-                if (catkeys[cat]) {
-                    return catkeys[cat].colorcode;
-                }
-            }
-
-            return null;
-        }
-        // Get type key and value
-        const type = dbinfo.type;
-        const tval = dbe[type];
-
-        let rkey = `${dbinfo.database}-${type}-${tval}`;
-        let color = null;
-        if (this.catinfo.catmap[rkey]) {
-            color = __checkForColor(this.catinfo.catmap[rkey]);
-        }
-        if (!color) {
-            rkey = `${dbinfo.database}-${type}`;
-            if (this.catinfo.catmap[rkey]) {
-                color = __checkForColor(this.catinfo.catmap[rkey]);
-            }
-        }
-
-        if (color) {
-            return color;
-        } else {
-            return "#000000";
-        }
+        return catobj.colorcode;
     }
 
     private _getEvents (metainfo: object): object {
@@ -803,7 +793,7 @@ export class PojoTimeline {
             const dbe = metainfo[db];
             const dbinfo = this.pojo.getDatabaseInfo(db);
             for (const dbi of dbe) {
-                const tinfo = this._getTimeInfo(dbi);
+                const tinfo = this.pojo.getTimeInfo(dbi);
                 const txt = this._getText(db, dbi);
                 const color = this._getColor(dbinfo, dbi);
 
@@ -815,6 +805,7 @@ export class PojoTimeline {
 
                 const event = {
                     "start": y,
+                    "duration": dur,
                     "txt": txt,
                     "order": n,
                     "color": color
@@ -824,6 +815,7 @@ export class PojoTimeline {
                     event.end = y + dur;
                 }
 
+                //                this.pojo.getCategories(eventcats, dbinfo, dbi, dur);
                 events.push(event);
                 n++;
             }
@@ -838,14 +830,6 @@ export class PojoTimeline {
             events: events
         }
     }
-
-    private _getMins (timestr) {
-        if (!timestr) { return -1; }
-        const a = timestr.split(":");
-        if (a.length !== 2) { return -2; }
-        return parseInt(a[0], 10) * 60 + parseInt(a[1], 10);
-    }
-
 
     private _getText (db, item) {
         let txt = "";
@@ -863,22 +847,6 @@ export class PojoTimeline {
         }
         return txt;
     }
-
-    private _getTimeInfo (item) {
-        const tinfo = {};
-        if (item["Start Time"]) { tinfo.start = this._getMins(item["Start Time"]) }
-        if (item["End Time"]) { tinfo.end = this._getMins(item["End Time"]) }
-        if (item["Duration"]) { tinfo.dur = item["Duration"] }
-
-        if (!tinfo.end) {
-            if (tinfo.start && tinfo.dur) { tinfo.end = tinfo.start + tinfo.dur; }
-        }
-        if (!tinfo.start) {
-            if (tinfo.end && tinfo.dur) { tinfo.start = tinfo.end - tinfo.dur; }
-        }
-        return tinfo;
-    }
-
 }
 
 const warning = function (app, title, message) {

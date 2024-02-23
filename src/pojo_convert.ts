@@ -474,7 +474,7 @@ export class PojoConvert {
         return {};
     }
 
-    async convertDailyNote (inputFile: TFile, databases: string[], suggestedTags: object[], imageactions: object, timeLine: boolean, convertAgain: boolean, convertTry: boolean): Promise<object> {
+    async convertDailyNote (inputFile: TFile, databases: string[], suggestedTags: object[], imageactions: object, timeline_info: object, convertAgain: boolean, convertTry: boolean): Promise<object> {
 
 
         // We are converting a daily note AGAIN if convertAgain is ture
@@ -647,18 +647,29 @@ export class PojoConvert {
             }
         }
 
+        // Tracking map setup
+        const trackmap = this.pojo.getTracking();
+        console.log("HERE is trackmap in convert", trackmap);
+        const tracking = this.setupDailyTracking(trackmap);
+
         // Construct the NEW daily note from parsedcontent
         const newrecords: object[] = [];
         const dailyentry = {};
+        let catstatus = {};
         const sections = {};
         const footlinks = [];
         let dailynotefile = null;
         let newnote_filepath: string = null;
-        let timeline_file = null;
         try {
 
             // Add frontmatter
-            this.addFrontMatterForEntry(parsedcontent, tags, frontmatter);
+            const metainfo = this.addFrontMatterForEntry(parsedcontent, tags, frontmatter);
+
+            // Get category information from metainfo
+            if (metainfo) {
+                catstatus = this.getCategoryStatus(metainfo);
+                frontmatter["catstatus"] = `${JSON.stringify(catstatus)}`;
+            }
 
             for (const db in parsedcontent) {
 
@@ -674,6 +685,11 @@ export class PojoConvert {
                     }
                 } else {
                     const dbinfo = this.pojo.getDatabaseInfo(db)
+
+                    // Tracking
+                    if (trackmap) {
+                        this.checkTrackingContent(trackmap, tracking, db, parsedcontent[db]);
+                    }
 
                     if (this.settings.databases_no_callouts && this.settings.databases_no_callouts.includes(db)) {
                         console.log("SKIP creation of callout for database " + db, frontmatter, dailyentry);
@@ -696,6 +712,49 @@ export class PojoConvert {
                 }
             }
 
+            let extra = [];
+            if (catstatus) {
+                // Add Summary of Groups 
+                const groupstats = this.generateCategoryUI(catstatus);
+                if (groupstats && groupstats.length > 0) {
+                    extra = groupstats;
+                    //                    for (const gs of groupstats) { dailyentry.Description.unshift(gs); }
+                }
+            }
+
+            if (trackmap) {
+                this.setupTrackingStatus(tracking);
+                frontmatter["trackinfo"] = `${JSON.stringify(tracking)}`;
+                let goodness = "> > [!success] ";
+                let badness = "> > [!failure] ";
+                let good = false;
+                let bad = false;
+                for (const rulename in tracking) {
+                    const rule = tracking[rulename];
+                    if (rule.status) {
+                        goodness += `${rulename} `;
+                        good = true;
+                    } else {
+                        badness += `${rulename} `;
+                        bad = true;
+                    }
+                }
+                // TODO improve look here!
+                if (bad) { extra.unshift(badness + "\n>"); }
+                if (good) { extra.unshift(goodness + "\n>"); }
+                //                dailyentry.Description.unshift(badness);
+                //                dailyentry.Description.unshift(goodness);
+            }
+
+            if (extra.length > 0) {
+                //                for (const lx of extra) {
+                //                    dailyentry.Description.unshift(lx);
+                //                }
+
+                extra.unshift("> [!quote]+ Day Summary\n>");
+                dailyentry.Extra = extra;
+            }
+
             if (this.settings.donotcreatefiles) {
                 this.pojo.logDebug("NOT creating actual files in Obsidian Vault due to 'donotcreatefiles' option!");
                 return {
@@ -711,10 +770,7 @@ export class PojoConvert {
             }
 
             dailynotefile = this.getNoteFileName(inputFile.name, true, frontmatter["Daily Note"]);
-            if (timeLine) {
-                timeline_file = dailynotefile + " timeline";
-            }
-            const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions, timeline_file);
+            const md = this.createNewDailyNoteMarkdown(dailynotefile, frontmatter, dailyentry, sections, footlinks, imageactions, timeline_info);
 
             // Output the new Daily Note file.
             const mdcontent = md.join("\n");
@@ -749,14 +805,13 @@ export class PojoConvert {
         // Create markdown files for metadata records
         await this.writeOutMetadataRecords(dailynotefile, newrecords);
 
-        // Add the frontmatter to the fileinfo (used if doing timeline)
+        // Add the frontmatter to the fileinfo 
         fileinfo.frontmatter = frontmatter;
         return {
             "type": "success",
             "fileinfo": fileinfo,
             "new_note": newnote_filepath,
             "dailyentry": dailyentry,
-            "timeline_file": timeline_file,
             "msg": "Daily Note converted successfully."
         }
     }
@@ -869,6 +924,129 @@ export class PojoConvert {
         this.pojo.logDebug("EXITING NOW!!!");
 
         this.exitNow([], true);
+    }
+
+    private getCategoryStatus (metainfo): object {
+        const eventcats = {};
+        for (const db in metainfo) {
+            const dbe = metainfo[db];
+            const dbinfo = this.pojo.getDatabaseInfo(db);
+            for (const dbi of dbe) {
+                const tinfo = this.pojo.getTimeInfo(dbi);
+                this.pojo.getCategories(eventcats, dbinfo, dbi, tinfo.dur);
+            }
+        }
+        return eventcats;
+    }
+
+    private generateCategoryUI (catstatus) {
+        const groupstats = [];
+
+        const catinfo = this.pojo.getCategoryInfo();
+        const _getCatName = function (groupid, catid) {
+            const cgrp = catinfo?.catkeys[groupid];
+            if (cgrp && cgrp[catid]) {
+                const ccat = cgrp[catid];
+                return ccat.Title;
+            } else {
+                return catid;
+            }
+        }
+
+        let bFlip = true;
+        for (const group in catstatus) {
+            let callout = "tip";
+            if (bFlip) { callout = "info"; }
+            bFlip = !bFlip;
+            let groupstat = `> > [!${callout}] ${group}`;
+            const ginfo = catstatus[group];
+            for (const catid in ginfo) {
+                const catname = _getCatName(group, catid);
+                const gcinfo = ginfo[catid];
+                const gmsg = gcinfo.duration ? `${gcinfo.duration} ⏱` : `${gcinfo.count} ☑`;
+                groupstat += `\n> > * **${catname}** ${gmsg}`
+            }
+            groupstat += "\n> ";
+            groupstats.push(groupstat);
+        }
+
+        return groupstats;
+    }
+
+    private setupTrackingStatus (tracking) {
+        for (const trackname in tracking) {
+            const track = tracking[trackname];
+            if (track.type == "MIN") {
+                if (track.value >= track.goal) {
+                    track.status = 1;
+                } else {
+                    track.status = 0;
+                }
+            } else if (track.type == "MAX") {
+                if (track.value <= track.goal) {
+                    track.status = 1;
+                } else {
+                    track.status = 0;
+                }
+            } else {
+                console.error("Unrecognized tracking type", track);
+            }
+        }
+    }
+
+    private checkTrackingContent (trackmap: object, tracking: object, db: string, dbentry: object[]) {
+        if (trackmap && trackmap[db]) {
+            // Check all the rules for this database
+            for (const rule of trackmap[db]) {
+                for (const content of dbentry) {
+                    for (const type of rule.type) {
+                        if (type == "_ANY_" || content._type == type) {
+                            // rule matches this entry
+                            let value;
+                            if (rule.param) {
+                                const val = content[rule.param];
+                                if (Array.isArray(val)) {
+                                    value = val[0];
+                                } else {
+                                    value = val;
+                                }
+                            } else {
+                                if (rule.GOAL_TARGET == "DURATION") {
+                                    value = content.Duration;
+                                } else {
+                                    console.error("RULE has unrecognized GOAL_TARGET", rule);
+                                }
+                            }
+
+                            const newval = parseInt(value, 10);
+                            if (!isNaN(newval)) {
+                                tracking[rule.GOAL_NAME].value += newval;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private setupDailyTracking (trackmap: object): null | object {
+        if (!trackmap) { return null; }
+        const tracking = {};
+        for (const dbname in trackmap) {
+            const rules = trackmap[dbname];
+            for (const rule of rules) {
+                if (rule.GOAL_CATEGORY == "DAILY") {
+                    if (!tracking[rule.GOAL_NAME]) {
+                        tracking[rule.GOAL_NAME] = {
+                            value: 0,
+                            goal: rule.GOAL_VALUE,
+                            type: rule.GOAL_TYPE
+                        }
+                    }
+                }
+            }
+        }
+        return tracking;
     }
 
     private getNoteFileName (filename: string, bProcessed: boolean, fmDailyNote: string): string {
@@ -1048,8 +1226,8 @@ export class PojoConvert {
             note += templates["DAILY-end"].content;
         }
 
-        console.log("HERE the note");
-        console.log(note);
+        //        console.log("HERE the note");
+        //        console.log(note);
 
         await this.pojo.createVaultFile(note, this.settings.folder_daily_notes, notename + ".md", false);
 
@@ -1600,7 +1778,7 @@ export class PojoConvert {
             const ainfo = this.pojo.parseForAnnotations(line);
             if (ainfo) {
                 this.pojo.logDebug("parse1", "MUST add this annotation ", ainfo);
-                this.trackingInfo(parsed, this.currentdb, ainfo);
+                this.trackingInfoDEPRECATED(parsed, this.currentdb, ainfo);
 
                 for (const k in ainfo) {
                     parsed[this.currentdb][this.currentidx][k] = ainfo[k];
@@ -1809,7 +1987,7 @@ export class PojoConvert {
         return true;
     }
 
-    private createNewDailyNoteMarkdown (dailynotefile: string, frontmatter: object, dailyentry: object, sections: object, footlinks: string[], imageactions: object, timeline_file: string) {
+    private createNewDailyNoteMarkdown (dailynotefile: string, frontmatter: object, dailyentry: object, sections: object, footlinks: string[], imageactions: object, timeline_info: object) {
 
         // Create the markdown for the note
         const md = [];
@@ -1829,10 +2007,24 @@ export class PojoConvert {
             }
         }
 
-        console.log("Adding timeline file? " + timeline_file);
-        if (timeline_file) {
+        // Output timeline links
+        if (timeline_info?.base) {
+            console.log("Adding timeline " + timeline_info);
             md.push("\n");
-            md.push(`[[${timeline_file}.excalidraw]]`);
+            md.push(`[[${timeline_info.base}.excalidraw|Timeline]]`);
+            if (timeline_info?.svg) {
+                md.push(`[[${timeline_info.base}.svg|Timeline SVG]]`);
+            }
+            if (timeline_info?.png) {
+                md.push(`[[${timeline_info.base}.png|Timeline PNG]]`);
+            }
+            md.push("");
+        }
+
+        // Output the extra content
+        if (dailyentry.Extra) {
+            md.push(dailyentry.Extra.join("\n"));
+            md.push("");
         }
 
         // Output the Daily Entry
@@ -2067,7 +2259,7 @@ export class PojoConvert {
             const typeparam = content._typeparam;
             const type = content[typeparam];
             const mocref = this.pojo.getMOCReferences(dbinfo, type, typeparam, type);
-            console.log("GOTS MOCREF for type " + typeparam + "=" + type, mocref);
+            //            console.log("GOTS MOCREF for type " + typeparam + "=" + type, mocref);
             const typeref = mocref ? mocref : type;
             if (!section.content[typeref]) {
                 section.content[typeref] = [];
@@ -2084,7 +2276,7 @@ export class PojoConvert {
                     } else {
                         const moclink = this.pojo.getMOCReferences(dbinfo, type, param, paramval);
                         if (moclink) {
-                            console.log("MOCLINK ", moclink);
+                            //                            console.log("MOCLINK ", moclink);
                             // This field has a mocref status.
                             if (!newval._params) { newval._params = {}; }
                             newval._params[param] = moclink;
@@ -2130,7 +2322,7 @@ export class PojoConvert {
         return nentry;
     }
 
-    private addFrontMatterForEntry (dbentry: object[], tags: string[], frontmatter: object) {
+    private addFrontMatterForEntry (dbentry: object[], tags: string[], frontmatter: object): object {
 
 
         // Add Daily Note YAML entry 
@@ -2329,6 +2521,8 @@ export class PojoConvert {
         }
 
         frontmatter["metainfo"] = `${JSON.stringify(dbesummary)}`;
+
+        return dbesummary;
     }
 
     private getISODave (dt: Date): string {
@@ -2572,7 +2766,7 @@ export class PojoConvert {
         return true;
     }
 
-    private trackingInfo (parsed, db, robj): object {
+    private trackingInfoDEPRECATED (parsed, db, robj): object {
 
         this.pojo.logDebug("Called trackingInfo!", parsed, db, robj);
         this.pojo.logDebug("NOT IMPLEMENTED FOR NOW");
