@@ -675,6 +675,12 @@ export class PojoHelper {
         return this.trackmap;
     }
 
+    getCatKeys (group, category) {
+        if (this.catkeys[group]) {
+            return this.catkeys[group][category];
+        }
+    }
+
     getCategoryInfo () {
         return { catmap: this.catmap, catkeys: this.catkeys, catgroups: this.catgroups };
     }
@@ -2110,22 +2116,28 @@ export class PojoHelper {
             const a1 = v.trim().split(" ");
             const norm1 = [];
             for (const w1 of a1) {
-                // Split hyphenated words
+                // Hyphenated words
                 const a2 = w1.trim().split("-");
                 const norm2 = [];
                 for (const w2 of a2) {
                     if (w2) {
-                        const wlc = w2.toLowerCase();
-                        const nlc = wlc[0].toUpperCase() + wlc.substring(1);
-                        norm2.push(nlc);
+                        // Underscore words
+                        const a3 = w2.split("_");
+                        const norm3 = [];
+                        for (const w3 of a3) {
+                            const wlc = w3.toLowerCase();
+                            const nlc = wlc[0].toUpperCase() + wlc.substring(1);
+                            norm3.push(nlc);
+                        }
+                        norm2.push(norm3.join("_"));
                     }
                 }
                 norm1.push(norm2.join("-"))
             }
             norm.push(norm1.join(" "));
         }
-        const nval = norm.join(",");
 
+        const nval = norm.join(",");
         return nval;
     }
 

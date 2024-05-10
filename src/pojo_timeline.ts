@@ -114,16 +114,158 @@ export class PojoTimeline {
         //        console.log("HERE IS timewidth", this.timewidth, this.scale);
     }
 
+    createPie (title, origin, radius, data, labels) {
+
+        this.EA.style.strokeColor = '#000000';
+
+        // data is an array of numbers
+
+        // Get total
+        let total = 0;
+        data.forEach(element => {
+            total += element;
+        });
+
+        console.log("HERE IS TOTAL", total)
+
+        // Convert to Angles
+        const degs = data.map(element => (element / total) * 360);
+        console.log("HERE ARE ANGLES mapped", degs)
+        let start = 0;
+        const angles = degs.map(angle => {
+            start += angle;
+            return start;
+        })
+
+        this.EA.addText(origin[0] - radius / 2, origin[1] + radius + 20, title);
+        this.EA.addEllipse(origin[0] - radius, origin[1] - radius, radius * 2, radius * 2);
+
+        //        this.EA.addLine([[0, 0], [0, -radius]]);
+        //        this.EA.addLine([[0, 0], [radius, 0]]);
+
+        this.EA.style.strokeColor = '#FF2222';
+
+        console.log("HERE ARE THE ANGLES", angles);
+
+        const _getMidPoint = function (a, b) {
+            return [a[0] + (b[0] - a[0]) / 2, a[1] + (b[1] - a[1]) / 2];
+        }
+
+        const cnvrad = Math.PI / 180;
+        const points = [];
+        angles.forEach(angle => {
+            const x = radius * Math.sin(angle * cnvrad) + origin[0];
+            const y = radius * Math.cos(angle * cnvrad) * -1 + origin[1];
+            console.log("x: " + x + " y: " + y + " angle: " + angle);
+            points.push([x, y]);
+        });
+
+        for (let n = 0; n < points.length; n++) {
+
+            this.EA.addLine([[origin[0], origin[1]], points[n]]);
+            const p = n == 0 ? points.length - 1 : n - 1;
+            if (labels && labels[n]) {
+                console.log("HERE n=" + n + " p=" + p, points);
+                const loc = _getMidPoint(points[n], points[p]);
+                this.EA.addText(loc[0], loc[1], labels[n]);
+            }
+        }
+    }
+
+    _testingPie () {
+        this.createPie("DUO", [0, 0], 100, [30, 30], ["HL", "CM"]);
+        this.createPie("DUO 2", [250, 0], 100, [30, 5], ["HL", "HI"]);
+        this.createPie("TRIO", [-250, 0], 100, [30, 30, 30], ["HL", "HI", "CM"]);
+        this.createPie("QUATRO", [150, 150], 100, [30, 30, 30, 80], ["HL", "HI", "CM", "MM"]);
+        this.createPie("TRIO 2", [0, 150], 100, [30, 10, 50], ["HL", "HI", "CM"]);
+    }
+
+
+    createBar (origin, width, height, total, data, labels, colors, title) {
+
+        // data is an array of numbers
+        this.EA.style.strokeColor = '#000000';
+        console.log("HERE IS TOTAL for Bar", total);
+        this.EA.addRect(origin[0], origin[1], width, height);
+
+        const labelh = 25;
+        let min = 60;
+        let hr = 1;
+        this.EA.style.strokeStyle = "dotted";
+        while (min < total) {
+            const delta = width * (min / total);
+            this.EA.addLine([[origin[0] + delta, origin[1]], [origin[0] + delta, origin[1] + height]]);
+            //            this.EA.addText(origin[0] + delta, origin[1] + height, hr + " ");
+            hr++;
+            min += 60;
+        }
+
+        this.EA.style.strokeStyle = "solid";
+        let fill = true;
+        let start = origin[0];
+        for (let n = 0; n < data.length; n++) {
+            // Change this to reflect labels!
+            this.EA.style.strokeColor = colors[n];
+            this.EA.style.backgroundColor = colors[n];
+            this.EA.setFillStyle(fill ? 1 : 0);
+            fill = !fill;
+
+            const w = width * (data[n] / total);
+            let tlabel;
+            let xlabel;
+            if (data[n] < 60) {
+                tlabel = data[n] + "min";
+                xlabel = start;
+            } else {
+                const h = data[n] / 60;
+                tlabel = h.toFixed(1) + "hr";
+                xlabel = start + w * 0.5;
+            }
+            this.EA.addRect(start, origin[1], w, height);
+            this.EA.addText(start, origin[1] - labelh, labels[n])
+            this.EA.addText(xlabel, origin[1] + height, tlabel);
+            start += w;
+        }
+
+    }
+
+    _getLabelColors (labels) {
+        const catinfo = this.pojo.getCategoryInfo();
+        console.log("HERE ARE CATINFO", catinfo);
+        const self = this;
+        return labels.map(val => {
+            const colorobj = self.pojo.getCatKeys(this.event_colors, val);
+            if (colorobj && colorobj.colorcode) {
+                return colorobj.colorcode;
+            } else {
+                return "#FF0000";
+            }
+        });
+    }
+
+    _testingBar () {
+
+        let labels, colors;
+        labels = ["CL", "HH", "CI", "FIN"];
+        colors = this._getLabelColors(labels);
+        this.createBar([0, 0], 500, 50, 480, [40, 200, 30, 100], labels, colors, null);
+    }
+
     async testing () {
         if (!this.EA) {
             new Notice("Excalidraw plugin not found. Cannot perform timeline visualization.", 8000);
             return false;
         }
+
+        //        this._testingPie();
+
         this.EA.reset();
-        this.EA.addText(0, 0, "HERE DA TEST TEXT");
-        const id = this.EA.addText(20, 20, "HERE DA TEST TEXT 2");
-        const ell = this.EA.getElement(id);
-        ell.isDeleted = true;
+        this._testingBar();
+
+
+        //                const ell = this.EA.getElement(id);
+        //                ell.isDeleted = true; */
+
         this.EA.create({ onNewPane: true });
 
         return true;
@@ -204,7 +346,18 @@ export class PojoTimeline {
         if (!retobj || !retobj.success || !retobj.events) {
             return retobj;
         }
+        let bTimeline = false;
+        for (const evt of retobj.events) {
+            if (evt.duration > 0 || event.start > 0) {
+                bTimeline = true;
+                break;
+            }
+        }
         console.log("HERE are retobj", retobj);
+        if (!bTimeline) {
+            console.error("This day has no recorded time or durations so timeline NOT created")
+            return null;
+        }
 
         // Split events into arrays that don't overlap in time
         const eventobj = this._eventCollisions(retobj.events);
@@ -221,12 +374,22 @@ export class PojoTimeline {
             const eaoptions = {
                 filename: opts.base,
                 foldername: folder,
-                onNewPane: true
+                onNewPane: false
             }
             console.log("CREATE excalidraw with ", eaoptions);
 
             // Delete the existing excalidraw file (IF it exists)
             await this.pojo.deleteFile(eaoptions.foldername, eaoptions.filename + ".excalidraw.md");
+
+            /*
+            this.app.workspace.on('file-open', function (file, data) {
+                console.log("FILEOPEN EVENT for file", file, data);
+                if (file.name == eaoptions.filename + ".excalidraw.md") {
+                    this.app.workspace.getWor
+                    console.log("CURRENT FILE CLOSE! " + cfile.name);
+                }
+            });
+            */
 
             await this.EA.create(eaoptions);
         } else {

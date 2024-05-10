@@ -183,13 +183,30 @@ export class PojoZap extends Modal {
                 btn
                     .setButtonText("Timeline")
                     .onClick(async () => {
-                        if (self.settings.timelines && self.settings.timelines.enabled) {
+                        if (self.settings.timelines && self.settings.timelines.timeline_enabled) {
                             console.log('Testing Timeline', self.pojo);
                             const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
                             const retobj = await timeline.createTimelines();
                             console.log('Finished da test', retobj);
                         } else {
                             const message = "Timeline support requires the timelines options to be set and enabled. Also, you must have the Obsidian Excalidraw plugin installed and enabled.";
+                            new InformationModal(
+                                self.app, "Timeline Not Available", message
+                            ).open();
+                        }
+                    })
+            )
+            .addButton((btn) =>
+                btn
+                    .setButtonText("Testing")
+                    .onClick(async () => {
+                        if (self.settings.timelines && self.settings.timelines.timeline_enabled) {
+                            console.log('Testing Time', self.pojo);
+                            const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
+                            const retobj = await timeline.testing();
+                            console.log('Finished da test', retobj);
+                        } else {
+                            const message = "Testing support requires the timelines options to be set and enabled. Also, you must have the Obsidian Excalidraw plugin installed and enabled.";
                             new InformationModal(
                                 self.app, "Timeline Not Available", message
                             ).open();
@@ -403,8 +420,8 @@ export class PojoZap extends Modal {
                     nSuccess++;
                 }
 
-                // If converted succesfully, also create timeline (if enabled)
-                if (timeline_opts) {
+                // If converted succesfully, also create timeline (if enabled and not doing convert ALL notes!)
+                if (timeline_opts && !bConvertAllNotes) {
                     console.log('Testing Timeline', timeline_opts);
                     const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
                     const retobj = await timeline.createTimelines(timeline_opts, retval.new_note, retval.fileinfo, retval.dailyentry);
