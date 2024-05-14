@@ -1,2 +1,13 @@
 [[ 
-ERROR getting fieldi for tag 12:15@14:00e
+ERROR on importing and parsing markdown!
+Cannot read properties of undefined (reading 'length')
+Call Stack => 
+TypeError: Cannot read properties of undefined (reading 'length')
+    at PojoHelper.parsePojoLine (plugin:obsidian-pojo:12998:44)
+    at _addPart (plugin:obsidian-pojo:19230:31)
+    at PojoConvert.parseMarkdownNew (plugin:obsidian-pojo:19300:9)
+    at PojoConvert.convertDailyNote (plugin:obsidian-pojo:18551:28)
+    at async PojoZap.convertDailyNotes (plugin:obsidian-pojo:21745:22)
+    at async ProgressDialog._doConversion [as callback] (plugin:obsidian-pojo:21550:26)
+    at async ProgressDialog.onOpen (plugin:obsidian-pojo:22017:5)
+ ]]

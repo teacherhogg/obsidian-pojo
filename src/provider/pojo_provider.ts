@@ -123,7 +123,8 @@ class PojoSuggestionProvider implements SuggestionProvider {
         this.pojo.logDebug(`>>${line}<<`);
         const pobj: object = this.pojo.parsePojoLine(line);
 
-        this.pojo.logDebug("parsePojoLine", line, pobj);
+//        console.log("parsePojoLine " + line, pobj);
+        this.pojo.logDebug("parsePojoLine: " + line, pobj, true);
         if (pobj == null) {
             return [];
         }

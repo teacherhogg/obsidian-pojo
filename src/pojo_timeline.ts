@@ -348,7 +348,7 @@ export class PojoTimeline {
         }
         let bTimeline = false;
         for (const evt of retobj.events) {
-            if (evt.duration > 0 || event.start > 0) {
+            if (evt.duration > 0 || evt.start > 0) {
                 bTimeline = true;
                 break;
             }

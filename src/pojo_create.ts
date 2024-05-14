@@ -180,7 +180,7 @@ export class PojoCreate extends Modal {
             for (const field in metaobj) {
                 const fv = metaobj[field];
                 //                console.log("HERE IS fv", fv, field);
-                if (fv.charAt(0) == '@') {
+                if (self.pojo.checkIfMetaMeta(fv)) {
                     meta += " " + fv;
                 } else {
                     params += " " + fv;
@@ -420,10 +420,11 @@ export class PojoCreate extends Modal {
 
             timeEl.addDropdown(ddd => {
                 mobj.dropdown = ddd;
+                const prefix = mobj.prefix ? mobj.prefix: '@';
                 _setupTimeChooser(ddd, mobj.units[0], mobj.display, false);
                 if (mobj.type == 'start-time') {
                     mobj.valset = true;
-                    _updateCmd(mobj.name, `@${start}${mobj.units[0]}`);
+                    _updateCmd(mobj.name, `${prefix}${start}${mobj.units[0]}`);
                     ddd.selectEl.addClass('pojo-set');
                     ddd.setValue(`${start}`);
                 } else {
@@ -440,7 +441,7 @@ export class PojoCreate extends Modal {
                         val = "0" + val;
                     }
 
-                    _updateCmd(mobj.name, `@${val}${mobj.units[0]}`);
+                    _updateCmd(mobj.name, `${prefix}${val}${mobj.units[0]}`);
                     ddd.selectEl.addClass('pojo-set');
                     mobj.valset = true;
                     ddd.setValue(val);
@@ -463,13 +464,14 @@ export class PojoCreate extends Modal {
 
         if (metatimes["duration"]) {
             const mobj = metatimes["duration"][0];
+            const prefix = mobj.prefix ? mobj.prefix: '@';
             timeEl.addDropdown(ddd => {
                 mobj.dropdown = ddd;
                 _setupTimeChooser(ddd, mobj.units[0], mobj.display, true);
                 ddd.setValue('50');
                 if (sitem[mobj.name]) {
                     const val = sitem[mobj.name];
-                    _updateCmd(mobj.name, `@${val}${mobj.units[0]}`);
+                    _updateCmd(mobj.name, `${prefix}${val}${mobj.units[0]}`);
                     ddd.selectEl.addClass('pojo-set');
                     mobj.valset = true;
                     ddd.setValue(_getTimeValue(mobj.type, val));
@@ -540,6 +542,7 @@ export class PojoCreate extends Modal {
         if (metatext) {
             for (const mobj of metatext) {
                 console.log("HERE BE ", mobj);
+                const prefix = mobj.prefix ? mobj.prefix: '@';
                 new Setting(contentEl)
                     .setName(mobj.name)
                     .addText(text => {
@@ -553,7 +556,7 @@ export class PojoCreate extends Modal {
                             }
                             text.inputEl.addClass('pojo-set');
                             mobj.fulltext = val + ";";
-                            _updateCmd(mobj.name, `@${val}${mobj.units[0]}`)
+                            _updateCmd(mobj.name, `${prefix}${val}${mobj.units[0]}`)
                             text.setValue(val);
                         }
                         mobj.textfield = text;
@@ -593,13 +596,13 @@ export class PojoCreate extends Modal {
                                 if (!cfv.includes(val)) {
                                     mobj.fulltext += sep + val;
                                     mobj.textfield.setValue(mobj.fulltext);
-                                    _updateCmd(mobj.name, `@${mobj.fulltext}${mobj.units[0]}`);
+                                    _updateCmd(mobj.name, `${prefix}${mobj.fulltext}${mobj.units[0]}`);
                                 }
                             } else {
                                 // Change with current value (just one).
                                 mobj.fulltext = val;
                                 mobj.textfield.setValue(val);
-                                _updateCmd(mobj.name, `@${mobj.fulltext}${mobj.units[0]}`);
+                                _updateCmd(mobj.name, `${prefix}${mobj.fulltext}${mobj.units[0]}`);
                             }
 
                         })
@@ -625,6 +628,7 @@ export class PojoCreate extends Modal {
             for (const mobj of metascale) {
                 console.log("HERE BE scale obj", mobj);
                 console.log("HERE BE SITEM", sitem[mobj.name]);
+                const prefix = mobj.prefix ? mobj.prefix: '@';
                 const sliderEl = new Setting(contentEl);
                 sliderEl.setName(mobj.name);
                 sliderEl.addSlider(slide => {
@@ -635,7 +639,7 @@ export class PojoCreate extends Modal {
                         console.log(mobj.name + " val is " + val);
                         mobj.textfield.setValue(val + " " + mobj.display);
                         mobj.textfield.inputEl.addClass('pojo-set');
-                        _updateCmd(mobj.name, `@${val}${mobj.units[0]}`);
+                        _updateCmd(mobj.name, `${prefix}${val}${mobj.units[0]}`);
                     })
                 });
                 sliderEl.addText(text => {

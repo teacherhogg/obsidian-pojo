@@ -18,6 +18,8 @@ export class PojoHelper {
     private vault: Vault;
     private app: App;
     private metaunits: object;
+    private metaprefix: string[];
+    private metapgroups: object;
     private metatimes: object;
     private metaprops: string[];
     private metainfo: object;
@@ -56,6 +58,8 @@ export class PojoHelper {
         this.metatimes = {};
         this.metainfo = metameta;
         this.metaprops = [];
+        this.metapgroups = {};
+        this.metaprefix = [];
         for (const field in metameta) {
             const ifield = metameta[field];
             this.metaprops.push(field);
@@ -72,6 +76,14 @@ export class PojoHelper {
                 this.metaunits["_default"] = ifield;
             }
 
+            if (ifield.prefix) {
+                if (!this.metaprefix.includes(ifield.prefix)) {
+                    this.metaprefix.push(ifield.prefix);
+                }
+                if (!this.metapgroups[ifield.prefix]) { this.metapgroups[ifield.prefix] = []; }
+                if (!this.metapgroups[ifield.prefix].includes(field)) { this.metapgroups[ifield.prefix].push(field); }
+            }
+
             if (ifield?.allowed == "history") {
                 if (metahistory && metahistory[ifield.name]) {
                     ifield.history = metahistory[ifield.name];
@@ -86,12 +98,83 @@ export class PojoHelper {
         console.log("metaunits", this.metaunits);
         console.log("metatimes", this.metatimes);
         console.log("metaprops", this.metaprops);
+        console.log("metapgroups", this.metapgroups);
         console.log("metainfo", this.metainfo);
+        console.log("metaprefix", this.metaprefix);
         console.groupEnd();
     }
 
+    guessMetaField(prefix: string, val: string): string {
+
+        const self = this;
+        console.log("guessMetaField with prefix " + prefix, this.metapgroups);
+        const fields = this.metapgroups[prefix];
+        console.log("POSSIBLE FIELDS for guessMetaType of " + prefix + " and val " + val, fields);
+        if (!fields) {
+            console.error("PREFIX NOT FOUND! " + prefix);
+            return null;
+        }
+
+        const _returnType = function(type) {
+            const vals = self.metatimes[type];
+            if (!vals || vals.length < 1) {
+                console.error("ERROR finding type " + type);
+                return null;
+            }
+            return vals[0]?.name;
+        }
+
+        // Check if numeric
+        const num = parseInt(val, 10);
+        if (!isNaN(num)) {
+            // Numeric value.
+            if (num <= 10) {
+                return _returnType("scale");
+            }
+            else if (num > 180) {
+                // Short-cut for end-time where time is 
+                // specified without the : separator between hours and minutes!
+                // eg. @950 will be interpreted as short-hand for @9:50e
+                return _returnType("end-time");
+            } else {
+                return _returnType("duration");
+            }
+        }
+
+        // Check if a TIME value of form "hh:mm"
+        const valt = val.split(":").join("");
+        const numt = parseInt(valt, 10);
+        if (!isNaN(numt)) {
+            return _returnType("start-time");
+        }
+
+        // Text value
+        for (const field of fields) {
+            const minfo = this.metainfo[field];
+            if (minfo?.type == "text") {
+                return field;
+            }
+        }
+
+        console.log("DO NOT know what type this is! ");
+        return null
+    }
+
+    checkIfMetaMeta(val: string): string | null {
+        if (!val) {
+            return null;
+        }
+
+        if (this.metaprefix.includes(val.charAt(0))) {
+            return val.charAt(0);
+        } else {
+            return null;
+        }
+    }
+     
     getMetaMeta (type: string, pname?: string): object | string[] | null {
         if (type == "units") { return this.metaunits; }
+        else if (type == "prefix") { return this.metaprefix; }
         else if (type == "times") { return this.metatimes; }
         else if (type == "props") { return this.metaprops; }
         else if (type == "name" && this.metainfo[pname]) {
@@ -467,6 +550,9 @@ export class PojoHelper {
 
     logDebug (category: string, obj: string | object, bOutputNow?: boolean) {
 
+        // BOB HACK
+        bOutputNow = true;
+
         // BOB BOB BOB
         const override = false; // DISABLE output if true
         if (!override && bOutputNow && obj) {
@@ -551,7 +637,7 @@ export class PojoHelper {
         if (dbfolder && dbfolder.children) {
             for (const fobj of dbfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
-                this.logDebug("Get Markdown Info", fname.path);
+//                this.logDebug("Get Markdown Info", fname.path);
                 const finfo = await this.getMarkdownFileInfo(fname, "yaml", false);
                 const fm = finfo?.frontmatter;
                 if (fm) {
@@ -732,7 +818,7 @@ export class PojoHelper {
         if (tfolder && tfolder.children) {
             for (const fobj of tfolder.children) {
                 const fname = this.vault.getAbstractFileByPath(fobj.path);
-                this.logDebug("Get Markdown Info", fname.path);
+//                this.logDebug("Get Markdown Info", fname.path);
                 const finfo = await this.getMarkdownFileInfo(fname, "content", true);
                 // finfo.content finfo.frontmatter
                 if (finfo && finfo.frontmatter && finfo.frontmatter.Category) {
@@ -1678,6 +1764,7 @@ export class PojoHelper {
 
     parsePojoLine (tagline: string, bQuiet = false): object | null {
 
+        const self = this;
         if (!tagline) return null;
         let bTrailingSpace = false;
         if (tagline.charAt(tagline.length - 1) == " ") {
@@ -1697,8 +1784,8 @@ export class PojoHelper {
 
         const robj = {};
 
-        // First strip out all @tags 
         let bLastParamTag = false;
+        let lastMetaPrefix = null;
         let params = tagline.split(" ");
         let plen = params.length;
         let tags = null;
@@ -1706,9 +1793,12 @@ export class PojoHelper {
 
         if (plen > 0) {
             params = params.filter(function (val) {
-                if (val && val.charAt(0) == "@") {
+                // First strip out all metadata tags (eg. Starting with & or @) 
+                let metatype = null;
+                if (metatype = self.checkIfMetaMeta(val)) {
                     if (!tags) { tags = []; }
                     tags.push(val.slice(1));
+                    lastMetaPrefix = metatype;
                     bLastParamTag = true;
                     return false;
                 } else {
@@ -1744,7 +1834,7 @@ export class PojoHelper {
         robj[dbinfo.type] = this.normalizeValue(taga[1]);
         robj._params = [...dbinfo.params];
 
-        // Add the possible @tags types
+        // Add the possible meta meta types
         const metaprops = this.getMetaMeta("props");
         for (const mtag of metaprops) {
             robj._params.push(mtag);
@@ -1858,7 +1948,12 @@ export class PojoHelper {
 
         if (bLastParamTag && !bTrailingSpace) {
             // In a tag at the moment.
-            robj._loc = "tag";
+            if (lastMetaPrefix) {
+                robj._loc = lastMetaPrefix;
+                robj._locval = robj._tags[robj._tags.length-1];
+            } else {
+                robj._loc = "tag";
+            }
         }
 
         // We check if the _params[0] is empty. If so, we set any metadata values for it.
@@ -1953,10 +2048,12 @@ export class PojoHelper {
 
     getSuggestedValues (pobj: object): Suggestion[] | null {
 
-        //        console.log("getSuggestedValues", pobj);
+        console.log("getSuggestedValues", pobj);
         //        this.logDebug("getSuggestedValues POJO Object", pobj);
 
         if (!pobj || !pobj._loc) { return null; }
+
+        let prefix = this.getMetaMeta("prefix");
 
         let values = [];
         if (pobj._loc == "database") {
@@ -1968,6 +2065,29 @@ export class PojoHelper {
             }
             const svalues = this.getValues(dinfo, dinfo.type);
             values = this.filterValues(pobj._type, svalues);
+        } else if (prefix.includes(pobj._loc)) {
+            console.log("This is a META META with value " + pobj._locval);
+
+            const field = this.guessMetaField(pobj._loc, pobj._locval);
+            console.log("FIELD GUESS is " + field);
+
+            const metainfo = this.getMetaMeta("name", field);
+
+            if (metainfo?.history) {
+
+                let sep = null;
+                let mval = pobj._locval;
+                if (metainfo.multi) { 
+                    sep = metainfo.multi;
+                    if (sep == "COMMA") { sep = ","; }
+                    const aval = mval.split(sep);
+                    mval = aval[aval.length-1];
+                }
+                values = this.filterValues(mval, metainfo.history);
+            }
+
+            console.log("GUESS FIELD " + field, metainfo[field]);
+
         } else {
             const dinfo = this.getDatabaseInfo(pobj._database);
             if (!dinfo) {
