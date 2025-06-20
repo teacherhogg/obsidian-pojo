@@ -164,7 +164,7 @@ export class PojoZap extends Modal {
                             "Create New Daily Note",
                             "",
                             "Include Tasks",
-                            true,
+                            false,
                             todaydailyname,
                             button => button
                                 .setButtonText("Create"),
@@ -179,23 +179,6 @@ export class PojoZap extends Modal {
             )
 
         new Setting(contentEl)
-            .addButton((btn) =>
-                btn
-                    .setButtonText("Timeline")
-                    .onClick(async () => {
-                        if (self.settings.timelines && self.settings.timelines.timeline_enabled) {
-                            console.log('Testing Timeline', self.pojo);
-                            const timeline = new PojoTimeline(self.settings, self.pojo, self.app.vault, self.app);
-                            const retobj = await timeline.createTimelines();
-                            console.log('Finished da test', retobj);
-                        } else {
-                            const message = "Timeline support requires the timelines options to be set and enabled. Also, you must have the Obsidian Excalidraw plugin installed and enabled.";
-                            new InformationModal(
-                                self.app, "Timeline Not Available", message
-                            ).open();
-                        }
-                    })
-            )
             .addButton((btn) =>
                 btn
                     .setButtonText("Testing")
@@ -226,44 +209,6 @@ export class PojoZap extends Modal {
                         self.F(retobj, self.pojo, true);
                     })
             )
-            .addButton((btn) =>
-                btn
-                    .setButtonText("Create or Update MOCs")
-                    .onClick(async () => {
-                        console.log('MOC Updates', self.pojo);
-                        const convert = new PojoConvert(self.settings, self.pojo, self.app.vault, self.app);
-
-                        let retobj, message;
-                        const _doMOCs = async function () {
-                            retobj = await convert.createAllMOCFiles(false);
-                            console.log("DONE MOC FER NOW", retobj, true);
-                            message = "Finished with the creation of " + retobj.mocCount + " Maps of Content (MOC).";
-                            new InformationModal(
-                                self.app, "MOC Creation Completed", message
-                            ).open();
-                        }
-
-                        const title = "Creating and/or Updating MOCs";
-                        message = "NOTE that MOC is an acronym for Maps of Content.";
-                        message += "\nThis can take quite a while....";
-                        message += "\n(FYI - Scuba is an acronym for Self Contained Underwater Breathing Apparatus).";
-
-                        new ProgressDialog(self.app, title, message, _doMOCs).open();
-                    })
-            )
-        /*
-        if (this.history.history_editors) {
-        
-            new Setting(contentEl)
-                .setName("History Editing")
-        
-            const newel = contentEl.createEl("div");
-            for (const editor in this.history.history_editors) {
-                newel.createEl("div", { text: "[ " + editor + " ] " + this.history.history_editors[editor] });
-            }
-            newel.createEl("hr");
-        }
-        */
 
         console.log("HERE IS logs", this.logs);
         if (this.logs.errors) {

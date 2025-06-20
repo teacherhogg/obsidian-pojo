@@ -70,7 +70,7 @@ export class PojoConvert {
         await this.pojo.createVaultFile(mm.join("\n"), this.settings.folder_master_moc, this.settings.file_master_moc + ".md", true);
     }
 
-    async createAllMOCFiles (bCreateOnly: boolean): Promise<object> | null {
+    async createAllMOCFilesDEPRECATED (bCreateOnly: boolean): Promise<object> | null {
 
         // Load the MOC templates.
         const templates = await this.pojo.getTemplates();
@@ -99,7 +99,7 @@ export class PojoConvert {
         console.log("HERE ARE databases", dbs);
 
         for (const db in dbs.databases) {
-            const mret = await this.createMOCFiles(db, dbs.databases[db], templates, tagSummary, info);
+            const mret = await this.createMOCFilesDEPRECATED(db, dbs.databases[db], templates, tagSummary, info);
         }
 
         // Create Master MOC
@@ -108,7 +108,7 @@ export class PojoConvert {
         return info;
     }
 
-    async createMOCFiles (dbname: string, dbdata: object, templates: object, tagsummary: object, info: object): Promise<object> {
+    async createMOCFilesDEPRECATED (dbname: string, dbdata: object, templates: object, tagsummary: object, info: object): Promise<object> {
 
         console.log("createMOC Files for " + dbname, dbdata);
         const self = this;
@@ -708,7 +708,7 @@ export class PojoConvert {
                     //        addFootLinks(footlinks, db, diaryEntry[db], dbinfo);
 
                     // Create new records
-                    this.createNewRecords(newrecords, diarydate, db, parsedcontent[db], dbinfo);
+//                    this.createNewRecords(newrecords, diarydate, db, parsedcontent[db], dbinfo);
                 }
             }
 
@@ -803,7 +803,7 @@ export class PojoConvert {
         }
 
         // Create markdown files for metadata records
-        await this.writeOutMetadataRecords(dailynotefile, newrecords);
+//        await this.writeOutMetadataRecords(dailynotefile, newrecords);
 
         // Add the frontmatter to the fileinfo 
         fileinfo.frontmatter = frontmatter;
@@ -915,7 +915,7 @@ export class PojoConvert {
 
         this.pojo.logDebug("CREATE MOC Files based on tracking.json contents");
         try {
-            this.createMOCFiles(true);
+            this.createMOCFilesDEPRECATED(true);
         } catch (err) {
             this.pojo.logError("Error creating MOC Files!", err);
         }
@@ -2294,7 +2294,7 @@ export class PojoConvert {
     }
 
 
-    private createNewRecords (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {
+    private createNewRecordsDEPRECATED (newrecords: object[], date: string, db: string, dbentry: object[], dbinfo: object): number {
 
         const typeparam = dbinfo.type;
 
@@ -2640,7 +2640,7 @@ export class PojoConvert {
         }
     }
 
-    private async writeOutMetadataRecords (dailynotefile: string, newrecords: object[]) {
+    private async writeOutMetadataRecordsDEPRECATED (dailynotefile: string, newrecords: object[]) {
 
         const self = this;
         const dailynoteref = dailynotefile.split(".")[0];

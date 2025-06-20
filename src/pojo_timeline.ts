@@ -318,7 +318,7 @@ export class PojoTimeline {
         }
     }
 
-    async createTimelines (opts: object, note_file: string, fileinfo: object, dailyentry: object) {
+    async createTimelinesDEPRECATED (opts: object, note_file: string, fileinfo: object, dailyentry: object) {
 
         if (this.disabled) {
             console.error("Timeline creation disabled.");
@@ -332,7 +332,7 @@ export class PojoTimeline {
         }
     }
 
-    async createTimelines2 (opts: object, note_file: string, fileinfo: object, dailyentry: object) {
+    async createTimelines2DEPRECATED (opts: object, note_file: string, fileinfo: object, dailyentry: object) {
 
         const finfo = await this._getNoteInfo(note_file, fileinfo);
         if (!finfo || !finfo.success) {

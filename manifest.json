@@ -1,9 +1,9 @@
 {
     "id": "obsidian-pojo",
     "name": "Power Obsidian Journaling (POJO)",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "minAppVersion": "0.5.0",
-    "description": "Power Obsidian Journaling (POJO), a journaling plugin that creates structured and unstructured data and plays nicely with other plugins such as Daily Notes, Datacore, and more.",
+    "description": "Power Obsidian Journaling (POJO), a journaling plugin that creates structured and unstructured data for journaling.",
     "author": "teacherhogg",
     "authorUrl": "https://github.com/teacherhogg",
     "isDesktopOnly": false

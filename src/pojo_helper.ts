@@ -314,8 +314,8 @@ export class PojoHelper {
     }
 
     getCategories (eventcats, dbinfo, dbi, duration) {
-
         const catinfo = this.getCategoryInfo();
+        console.log("pojo_helper.js: getCategories", eventcats, catinfo);
         const groups = catinfo.catgroups;
         for (const group of groups) {
             const catobj = this.getCategory(group, dbinfo, dbi);
@@ -701,6 +701,7 @@ export class PojoHelper {
         this.logDebug("POJO CATEGORY MAP", pojoCatMap, true);
         const cats = await this.getSettings("categories.md");
         this.logDebug("POJO categories.md", cats, true);
+        console.log("pojo_helper: InitDatabases ", cats);
 
         const catkeys = {};
         const groups = [];
